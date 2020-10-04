@@ -17,7 +17,11 @@ int main(void) {
   std::cout << "ft.h \\o/" << std::endl;
 
   while((ln = linenoise("> "))) {
-    state.exec(ln);
+    Error e = state.exec(ln);
+
+    if(e) {
+      std::cout << "Error: " << error_description(e) << std::endl;
+    }
 
     for(size_t i = 0; i != state.si; i += 1) {
       std::cout << state.stack[i].bits << ' ';

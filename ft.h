@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <stdio.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -178,8 +179,16 @@ struct State {
 
       // Define builtin words
       defw("hello", [](State& s) {
-        std::cout << "Hello world." << std::endl;
+        printf("Hello world.");
         return E_OK;
+      });
+
+      defw("+", [](State& s) {
+        Value a, b;
+        FT_CHECK(s.pop(a));
+        FT_CHECK(s.pop(b));
+        Value c(a.bits + b.bits);
+        return s.push(c);
       });
     }
   ~State() {}
@@ -218,7 +227,7 @@ struct State {
    */
   Error pop(Value& v) {
     if(si == 0) {
-      return E_STACK_OVERFLOW;
+      return E_STACK_UNDERFLOW;
     }
 
     v = stack[si-1];
@@ -246,7 +255,6 @@ struct State {
     scratch[scratch_i++] = c;
     return E_OK;
   }
-
 
   /***** DICTIONARY PRIMITIVES */
 
@@ -291,8 +299,6 @@ struct State {
 
     (*ptr) = word;
 
-    std::cout << "define c word: " << (size_t) (*d->data<size_t>()) << " = " << (size_t)word << std::endl;
-
     FT_ASSERT(d->previous == shared[G_LATEST].as<DictEntry>());
     FT_ASSERT(d->flags == DictEntry::FLAG_CWORD);
     FT_ASSERT(d->name_length == name_length);
@@ -318,7 +324,6 @@ struct State {
 
     return 0;
   }
-
 
   /***** MAIN INTERPRETER */
 
@@ -359,14 +364,13 @@ struct State {
         FT_CHECK(scratch_put('\0'));
 
         // We now have a word, look it up in the dictionary
-
         DictEntry* word = lookup(scratch);
 
         if(word) {
           if(word->flags & DictEntry::FLAG_CWORD) {
             c_word_t cw = *word->data<c_word_t>();
-            cw(*this);
-            // std::cout << "found cword" << (size_t) cw << std::endl;
+            Error e = cw(*this);
+            if(e != E_OK) return e;
           }
         }
 

@@ -22,4 +22,10 @@ TEST_CASE("ft.h") {
     CHECK(s.si == 1);
     CHECK(s.stack[0].bits == 5);
   }
+
+  SUBCASE("can call a word") {
+    s.exec("2 2 +");
+    CHECK(s.si == 1);
+    CHECK(s.stack[0].bits == 4);
+  }
 }
