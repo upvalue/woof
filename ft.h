@@ -243,7 +243,7 @@ struct State {
       });
 
       defw(";", [](State& s) {
-        s.dict_push(OP_EXIT);
+        s.dict_put(OP_EXIT);
         s.shared[S_COMPILING] = 0;
         return E_OK;
       }, true);
@@ -374,12 +374,12 @@ struct State {
       d->flags += DictEntry::FLAG_IMMEDIATE;
     }
 
-    dict_push((size_t)word);
+    dict_put((size_t)word);
 
     // TODO: It's possible for Forth code to overwrite this and cause us to call an invalid value
     // which would make ft.h crash. One possibility would be registering all C functions in an array
     // and only calling known indexes in that array. That way, even corrupted forth code could not
-    // segfault.
+    // segfault, only call nonsensical C functions
 
     FT_ASSERT(*d->data<size_t>() == (size_t) word);
     FT_ASSERT(d->flags & DictEntry::FLAG_CWORD);
@@ -388,7 +388,7 @@ struct State {
   }
 
   /** Push a cell into memory, comma in Forth */
-  Error dict_push(Cell cell) {
+  Error dict_put(Cell cell) {
     if(memory_i + sizeof(Cell) > memory_size) {
       return E_OUT_OF_MEMORY;
     }
@@ -486,8 +486,8 @@ struct State {
           push(token_number);
         } else {
           // If compiling, push opcode
-          dict_push(OP_PUSH_IMMEDIATE);
-          dict_push(token_number);
+          dict_put(OP_PUSH_IMMEDIATE);
+          dict_put(token_number);
         }
       } else if(tk == TK_WORD) {
         // We now have a word, look it up in the dictionary
@@ -495,10 +495,12 @@ struct State {
 
         if(word) {
           if(*shared[S_COMPILING] && (word->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
-            // TODO: Check for immediacy
-            if(word->flags & DictEntry::FLAG_CWORD) {
-              dict_push(OP_CALL_C);
-              dict_push(*word->data<ptrdiff_t>());
+            if((word->flags & DictEntry::FLAG_CWORD) == 0) {
+              dict_put(OP_CALL_FORTH);
+              dict_put((ptrdiff_t) word->data<ptrdiff_t>());
+            } else {
+              dict_put(OP_CALL_C);
+              dict_put(*word->data<ptrdiff_t>());
             }
           } else {
             // TODO: If in compiling mode, we should check immediacy first
@@ -517,7 +519,7 @@ struct State {
 
                 shared[S_WORD_AVAILABLE] = 1;
 
-                cw(*this);
+                FT_CHECK(cw(*this));
               } else if(e != E_OK) {
                 return e;
               }
@@ -538,6 +540,7 @@ struct State {
 
   /** Execute user defined Forth code */
   Error exec(ptrdiff_t* code) {
+    // TODO: Check that code addresses are valid.
     while(true) {
       switch(*code++) {
         case OP_PUSH_IMMEDIATE: {
@@ -546,11 +549,13 @@ struct State {
           continue;
         }
         case OP_CALL_FORTH: {
-          return E_OK;
+          ptrdiff_t* next = (ptrdiff_t*)(*code++);
+          FT_CHECK(exec(next));
+          continue;
         }
         case OP_CALL_C: {
           c_word_t cw = (c_word_t)(*code++);
-          cw(*this);
+          FT_CHECK(cw(*this));
           continue;
         }
         case OP_EXIT: {
@@ -560,8 +565,6 @@ struct State {
           std::cout << "unknown opcode" << *code << std::endl;
         }
       }
-      // TODO: Check that code addresses are valid.
-      // Find until exit
       return E_OK;
     }
   }
