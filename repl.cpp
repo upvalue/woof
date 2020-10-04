@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <iostream>
 
 #include "linenoise.h"
@@ -9,7 +10,7 @@ using namespace ft;
 StaticStateConfig<> memory;
 
 int main(void) {
-  const char *ln;
+  char *ln;
 
   State state(memory);
 
@@ -22,6 +23,8 @@ int main(void) {
       std::cout << state.stack[i].bits << ' ';
     }
     std::cout << std::endl;
+
+    free(ln);
   }
 
   return 0;

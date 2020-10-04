@@ -1,5 +1,5 @@
-- implement definition of C++ words
-- basic calling
+x implement definition of C++ words
+x basic calling
+- basic calling from within forth
 - allow user defined forth words
-- ???
 - write basic prelude

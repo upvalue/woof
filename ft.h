@@ -1,6 +1,7 @@
 #ifndef _FT_H
 #define _FT_H
 
+#include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
 #include <string.h>
@@ -8,6 +9,11 @@
 // TODO: Remove STL dependency
 #include <iostream>
 
+#define FT_ASSERT(x) assert(x)
+
+/**
+ * Check for an error and return if there was one
+ */
 #define FT_CHECK(e) do { ft::Error err = e; if(err != E_OK) { return err; }} while(0)
 
 /**
@@ -32,6 +38,14 @@ struct Value {
   ~Value() {}
 
   ptrdiff_t bits;
+
+  template <class T> T* as() const {
+    return (T*) bits;
+  }
+
+  template <class T> void set(T* ptr) {
+    bits = (ptrdiff_t) ptr;
+  }
 };
 
 /** 
@@ -41,7 +55,11 @@ enum Error {
   E_OK,
   E_STACK_UNDERFLOW,
   E_STACK_OVERFLOW,
-  E_OUT_OF_MEMORY
+  E_OUT_OF_MEMORY,
+  /**
+   * Encountered something that was too large for scratch space, such as a very long word name
+   */
+  E_OUT_OF_SCRATCH,
 };
 
 inline const char* error_description(const Error e) {
@@ -116,8 +134,8 @@ struct DictEntry {
   char name[1];
   
   // The actual data in the dictionary comes afterwards
-  char* data() const {
-    return (char*) (((size_t) this) + name_length);
+  template <class T> T* data() const {
+    return (T*) (((size_t) this) + sizeof(DictEntry) + name_length + 1);
   }
 };
 
@@ -219,6 +237,17 @@ struct State {
     return E_OK;
   }
 
+  /***** SCRATCH INTERACTION */
+
+  Error scratch_put(char c) {
+    if(scratch_i == FT_SCRATCH_SIZE) {
+      return E_OUT_OF_SCRATCH;
+    }
+    scratch[scratch_i++] = c;
+    return E_OK;
+  }
+
+
   /***** DICTIONARY PRIMITIVES */
 
   /**
@@ -248,22 +277,48 @@ struct State {
 
     DictEntry* d = (DictEntry*) dict_addr;
 
-    d->previous = (DictEntry*) shared[G_LATEST].bits;
+    d->previous = shared[G_LATEST].as<DictEntry>(); // (DictEntry*) shared[G_LATEST].bits;
     d->flags = DictEntry::FLAG_CWORD;
     d->name_length = name_length;
     strncpy(d->name, name, name_length);
 
-    c_word_t* data = (c_word_t*) d->data();
+    c_word_t* ptr = d->data<c_word_t>();
 
     // TODO: It's possible for Forth code to overwrite this and cause us to call an invalid value
     // which would make ft.h crash. One possibility would be registering all C functions in an array
     // and only calling known indexes in that array. That way, even corrupted forth code could not
     // segfault.
 
-    (*data) = word;
+    (*ptr) = word;
+
+    std::cout << "define c word: " << (size_t) (*d->data<size_t>()) << " = " << (size_t)word << std::endl;
+
+    FT_ASSERT(d->previous == shared[G_LATEST].as<DictEntry>());
+    FT_ASSERT(d->flags == DictEntry::FLAG_CWORD);
+    FT_ASSERT(d->name_length == name_length);
+    FT_ASSERT(strncmp(d->name, name, name_length) == 0);
+    FT_ASSERT(*d->data<size_t>() == (size_t) word);
+    shared[G_LATEST].set(d);
 
     return E_OK;
   }
+
+  /**
+   * Lookup a word in the dictionary
+   */
+  DictEntry* lookup(const char* name) const {
+    DictEntry* e = shared[G_LATEST].as<DictEntry>();
+
+    while(e) {
+      if(strncmp(e->name, name, e->name_length) == 0) {
+        return e;
+      }
+      e = e->previous;
+    }
+
+    return 0;
+  }
+
 
   /***** MAIN INTERPRETER */
 
@@ -272,7 +327,9 @@ struct State {
    */
   Error exec(const char* s) {
     char c;
+    size_t i = 0;
     while((c = *s++)) {
+      i++;
       if(isdigit(c)) {
         // Number: read and push onto stack
         ptrdiff_t n = c - '0';
@@ -290,7 +347,32 @@ struct State {
       } else if(isspace(c)) {
         // Skip whitespace
         continue;
+      } else {
+        scratch_i = 1;
+        scratch[0] = c;
+        while((c = *s++)) {
+          if(isspace(c)) {
+            break;
+          }
+          FT_CHECK(scratch_put(c));
+        }
+        FT_CHECK(scratch_put('\0'));
+
+        // We now have a word, look it up in the dictionary
+
+        DictEntry* word = lookup(scratch);
+
+        if(word) {
+          if(word->flags & DictEntry::FLAG_CWORD) {
+            c_word_t cw = *word->data<c_word_t>();
+            cw(*this);
+            // std::cout << "found cword" << (size_t) cw << std::endl;
+          }
+        }
+
       }
+
+      if(c == '\0') break;
 
       // Allow words to read other words here
       // Switch on mode
