@@ -139,7 +139,7 @@ struct DictEntry {
   /**
    * Flags on the word
    */
-  Flags flags;
+  size_t flags;
 
   size_t name_length;
 
@@ -246,7 +246,7 @@ struct State {
         s.dict_push(OP_EXIT);
         s.shared[S_COMPILING] = 0;
         return E_OK;
-      });
+      }, true);
 
       // TODO: comma
       // TODO: if/else
@@ -364,11 +364,15 @@ struct State {
   /**
    * Add a Forth word backed by a C++ function
    */
-  Error defw(const char* name, c_word_t word) {
+  Error defw(const char* name, c_word_t word, bool immediate = false) {
     DictEntry* d = 0;
     FT_CHECK(create(name, d));
 
     d->flags = DictEntry::FLAG_CWORD;
+
+    if(immediate) {
+      d->flags += DictEntry::FLAG_IMMEDIATE;
+    }
 
     dict_push((size_t)word);
 
@@ -378,7 +382,7 @@ struct State {
     // segfault.
 
     FT_ASSERT(*d->data<size_t>() == (size_t) word);
-    FT_ASSERT(d->flags == DictEntry::FLAG_CWORD);
+    FT_ASSERT(d->flags & DictEntry::FLAG_CWORD);
 
     return E_OK;
   }
@@ -427,7 +431,7 @@ struct State {
     while(input_i < input_size) {
       char c = input[input_i++];
       if(isdigit(c)) {
-        // Number: read and push onto stack
+        // Number
         ptrdiff_t n = c - '0';
         while(input_i < input_size) {
           c = input[input_i++];
@@ -446,7 +450,7 @@ struct State {
         // Skip whitespace
         continue;
       } else {
-        // Read a word
+        // Word
         scratch_i = 1;
         scratch[0] = c;
         while(input_i < input_size) {
@@ -490,31 +494,37 @@ struct State {
         DictEntry* word = lookup(scratch);
 
         if(word) {
-          // This is a C++ word, invoke and check return value
-
-          // TODO: If in compiling mode, we should check immediacy first
-          // and if not push OP_CALL_C
-          if(word->flags & DictEntry::FLAG_CWORD) {
-            c_word_t cw = *word->data<c_word_t>();
-
-            Error e = cw(*this);
-            if(e == E_WANT_WORD) {
-              // Attempt to read additional word name to pass through
-              Token tk2;
-              FT_CHECK(next_token(tk2));
-
-              // Whatever we got wasn't a word, so just pass the error through
-              if(tk2 != TK_WORD) return E_WANT_WORD;
-
-              shared[S_WORD_AVAILABLE] = 1;
-
-              cw(*this);
-            } else if(e != E_OK) {
-              return e;
+          if(*shared[S_COMPILING] && (word->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
+            // TODO: Check for immediacy
+            if(word->flags & DictEntry::FLAG_CWORD) {
+              dict_push(OP_CALL_C);
+              dict_push(*word->data<ptrdiff_t>());
             }
           } else {
-            ptrdiff_t* code = word->data<ptrdiff_t>();
-            exec(code);
+            // TODO: If in compiling mode, we should check immediacy first
+            // and if not push OP_CALL_C
+            if(word->flags & DictEntry::FLAG_CWORD) {
+              c_word_t cw = *word->data<c_word_t>();
+
+              Error e = cw(*this);
+              if(e == E_WANT_WORD) {
+                // Attempt to read additional word name to pass through
+                Token tk2;
+                FT_CHECK(next_token(tk2));
+
+                // Whatever we got wasn't a word, so just pass the error through
+                if(tk2 != TK_WORD) return E_WANT_WORD;
+
+                shared[S_WORD_AVAILABLE] = 1;
+
+                cw(*this);
+              } else if(e != E_OK) {
+                return e;
+              }
+            } else {
+              ptrdiff_t* code = word->data<ptrdiff_t>();
+              FT_CHECK(exec(code));
+            }
           }
         } else {
           return E_WORD_NOT_FOUND;
@@ -533,6 +543,14 @@ struct State {
         case OP_PUSH_IMMEDIATE: {
           ptrdiff_t n = *code++;
           push(n);
+          continue;
+        }
+        case OP_CALL_FORTH: {
+          return E_OK;
+        }
+        case OP_CALL_C: {
+          c_word_t cw = (c_word_t)(*code++);
+          cw(*this);
           continue;
         }
         case OP_EXIT: {
