@@ -33,10 +33,13 @@
 
 namespace ft {
 
-struct Value {
-  Value(): bits(0) {}
-  Value(ptrdiff_t bits_): bits(bits_) {}
-  ~Value() {}
+/**
+ * A word (as in system word) sized integer
+ */
+struct Cell {
+  Cell(): bits(0) {}
+  Cell(ptrdiff_t bits_): bits(bits_) {}
+  ~Cell() {}
 
   ptrdiff_t bits;
 
@@ -46,6 +49,10 @@ struct Value {
 
   template <class T> void set(T* ptr) {
     bits = (ptrdiff_t) ptr;
+  }
+
+  ptrdiff_t operator*() const {
+    return bits;
   }
 };
 
@@ -78,13 +85,13 @@ inline const char* error_description(const Error e) {
  * whatever memory you've allocated for it.
  */
 struct StateConfig {
-  Value* stack;
+  Cell* stack;
   size_t stack_size;
 
   char* memory;
   size_t memory_size;
 
-  Value* shared;
+  Cell* shared;
   size_t shared_size;
 };
 
@@ -95,19 +102,19 @@ struct StateConfig {
 template <size_t stack_size_num = 1024, size_t shared_size_num = 8, size_t memory_size_num = 1024 * 1024>
 struct StaticStateConfig : StateConfig {
   StaticStateConfig() {
-    stack = (Value*) stack_store;
+    stack = (Cell*) stack_store;
     stack_size = stack_size_num;
 
     memory = (char*) memory_store;
     memory_size = memory_size_num;
 
-    shared = (Value*) shared_store;
+    shared = (Cell*) shared_store;
     shared_size = shared_size_num;
   }
 
-  Value* stack_store[stack_size_num];
+  Cell* stack_store[stack_size_num];
   char* memory_store[memory_size_num];
-  Value* shared_store[shared_size_num];
+  Cell* shared_store[shared_size_num];
 };
 
 /** 
@@ -184,10 +191,10 @@ struct State {
       });
 
       defw("+", [](State& s) {
-        Value a, b;
+        Cell a, b;
         FT_CHECK(s.pop(a));
         FT_CHECK(s.pop(b));
-        Value c(a.bits + b.bits);
+        Cell c(a.bits + b.bits);
         return s.push(c);
       });
     }
@@ -197,7 +204,7 @@ struct State {
   /**
    * The data stack
    */
-  Value *stack;
+  Cell *stack;
   size_t stack_size, si;
 
   /**
@@ -212,12 +219,12 @@ struct State {
   char scratch[FT_SCRATCH_SIZE];
   size_t scratch_i;
 
-  Value* shared;
+  Cell* shared;
   size_t shared_i, shared_size;
 
   /***** STACK INTERACTION PRIMITIVES */
 
-  Error push(Value v) {
+  Error push(Cell v) {
     stack[si++] = v;
     return E_OK;    
   };
@@ -225,7 +232,7 @@ struct State {
   /**
    * Pop a value into v
    */
-  Error pop(Value& v) {
+  Error pop(Cell& v) {
     if(si == 0) {
       return E_STACK_UNDERFLOW;
     }
@@ -347,7 +354,7 @@ struct State {
             break;
           }
         }
-        Value num(n);
+        Cell num(n);
         FT_CHECK(push(num));
       } else if(isspace(c)) {
         // Skip whitespace
@@ -372,6 +379,13 @@ struct State {
             Error e = cw(*this);
             if(e != E_OK) return e;
           }
+          // COLON
+          // expects a word after it
+
+          // once it gets that word, it creates a new dictionary entry with that
+          // word
+
+          // and sets COMPILING mode!
         }
 
       }
