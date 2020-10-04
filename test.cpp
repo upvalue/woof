@@ -5,15 +5,21 @@
 
 using namespace ft;
 
-Value stack[1024];
-Value memory[1024];
+struct TestState {
+  TestState(): cfg(), state(cfg) {}
 
-TEST_CASE("forth starts") {
+  StaticStateConfig<8, 1024> cfg;
   State state;
-  state.stack = (Value*) stack;
-  state.memory = (Value*) memory;
+};
 
-  state.exec("5");
-  std::cout <<"hiya " << std::endl;
+TEST_CASE("ft.h") {
+  TestState test_state;
 
+  State& s = test_state.state;
+
+  SUBCASE("reads a number") {
+    s.exec("5");
+    CHECK(s.si == 1);
+    CHECK(s.stack[0].bits == 5);
+  }
 }

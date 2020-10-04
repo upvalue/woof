@@ -19,11 +19,23 @@ struct Value {
   ptrdiff_t bits;
 };
 
+/** 
+ * Error codes, returned directly by functions
+ */
 enum Error {
   E_OK,
   E_STACK_UNDERFLOW,
   E_STACK_OVERFLOW
 };
+
+inline const char* error_description(const Error e) {
+  switch(e) {
+    case E_OK: return "ok";
+    case E_STACK_UNDERFLOW: return "stack underflow";
+    case E_STACK_OVERFLOW: return "stack overflow";
+    default: return "unknown";
+  }
+}
 
 /**
  * StateConfig -- a struct used to initialize State and point it at 
@@ -33,25 +45,25 @@ struct StateConfig {
   Value* stack;
   size_t stack_size;
 
-  Value* memory;
+  char* memory;
   size_t memory_size;
 };
 
 /** 
  * A convenience method for initializing StateConfig with statically allocated memory
  */
-template <size_t stack_size_num = 8, size_t memory_size_num = 1024>
+template <size_t stack_size_num = 1024, size_t memory_size_num = 1024 * 1024>
 struct StaticStateConfig : StateConfig {
   StaticStateConfig() {
     stack = (Value*) stack_store;
     stack_size = stack_size_num;
 
-    memory = (Value*) memory_store;
+    memory = (char*) memory_store;
     memory_size = memory_size_num;
   }
 
   Value* stack_store[stack_size_num];
-  Value* memory_store[memory_size_num];
+  char* memory_store[memory_size_num];
 };
 
 /**
@@ -79,11 +91,11 @@ struct State {
   /**
    * Program memory
    */
-  Value *memory;
+  char *memory;
   size_t memory_size;
 
   /**
-   * Scratch space, for formatting errors and strings
+   * Scratch buffer, for doing things with strings
    */
   char scratch[1024];
   size_t scratch_i;
@@ -115,6 +127,7 @@ struct State {
     char c;
     while((c = *s++)) {
       if(isdigit(c)) {
+        // Number: read and push onto stack
         ptrdiff_t n = c - '0';
         while((c = *s++)) {
           if(isdigit(c)) {
@@ -127,12 +140,18 @@ struct State {
         }
         Value num(n);
         FT_CHECK(push(num));
+      } else if(isspace(c)) {
+        // Skip whitespace
+        continue;
       }
+
+      // Allow words to read other words here
+      // Switch on mode
+      // If interpreting, call word immediately
+      // If compiling, push code 
     }
     return E_OK;
   }
-
-
 };
 
 };
