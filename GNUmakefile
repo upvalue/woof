@@ -1,6 +1,11 @@
+CC := clang
+CXX := clang++
 
-repl: repl.cpp
-	$(CXX) -o $@ $<
+vendor/linenoise/linenoise.o: vendor/linenoise/linenoise.c
+	$(CC) -O2 -c -o $@ $<
 
-test: test.cpp	
-	$(CXX) -o $@ $<
+repl: repl.cpp vendor/linenoise/linenoise.o ft.h
+	$(CXX) -Ivendor/linenoise -o $@ repl.cpp vendor/linenoise/linenoise.o
+
+test: test.cpp ft.h
+	$(CXX) -Ivendor/doctest -o $@ $<
