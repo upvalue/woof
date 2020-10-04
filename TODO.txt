@@ -1,0 +1,5 @@
+- implement definition of C++ words
+- basic calling
+- allow user defined forth words
+- ???
+- write basic prelude

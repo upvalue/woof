@@ -19,8 +19,9 @@ int main(void) {
     state.exec(ln);
 
     for(size_t i = 0; i != state.si; i += 1) {
-      std::cout << state.stack[i].bits << std::endl;
+      std::cout << state.stack[i].bits << ' ';
     }
+    std::cout << std::endl;
   }
 
   return 0;

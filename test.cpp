@@ -8,7 +8,7 @@ using namespace ft;
 struct TestState {
   TestState(): cfg(), state(cfg) {}
 
-  StaticStateConfig<8, 1024> cfg;
+  StaticStateConfig<8, 8, 512> cfg;
   State state;
 };
 
