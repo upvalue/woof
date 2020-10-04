@@ -34,7 +34,7 @@
 namespace ft {
 
 /**
- * A word (as in system word) sized integer
+ * A word (as in system word) sized integer.
  */
 struct Cell {
   Cell(): bits(0) {}
@@ -68,6 +68,10 @@ enum Error {
    * Encountered something that was too large for scratch space, such as a very long word name
    */
   E_OUT_OF_SCRATCH,
+  /**
+   * For defining words -- requests that a word is available in scratch space.
+   */
+  E_WANT_WORD,
 };
 
 inline const char* error_description(const Error e) {
@@ -76,6 +80,7 @@ inline const char* error_description(const Error e) {
     case E_STACK_UNDERFLOW: return "stack underflow";
     case E_STACK_OVERFLOW: return "stack overflow";
     case E_OUT_OF_MEMORY: return "out of memory";
+    case E_WANT_WORD: return "wanted a word";
     default: return "unknown";
   }
 }
@@ -97,7 +102,7 @@ struct StateConfig {
 
 
 /** 
- * A convenience method for initializing StateConfig with statically allocated memory
+ * A convenience method for struct StateConfig with statically allocated memory
  */
 template <size_t stack_size_num = 1024, size_t shared_size_num = 8, size_t memory_size_num = 1024 * 1024>
 struct StaticStateConfig : StateConfig {
@@ -157,11 +162,27 @@ typedef Error (*c_word_t)(State&);
 
 /**
  * Reserved C++ and Forth variables. 
- * Start at G_USER_SHARED to define your own.
+ * Start at S_USER_SHARED to define your own.
  */
 enum {
-  G_LATEST,
-  G_USER_SHARED,
+  /** Latest dictionary entry */
+  S_LATEST,
+  /** Input mode */
+  S_WORD_AVAILABLE,
+  /** Compiling */
+  S_COMPILING,
+  S_USER_SHARED,
+};
+
+enum {
+  INPUT_INTERPRET,
+  INPUT_PASS_WORD,
+};
+
+enum Token {
+  TK_NUMBER,
+  TK_WORD,
+  TK_END,
 };
 
 /**
@@ -194,12 +215,20 @@ struct State {
         Cell a, b;
         FT_CHECK(s.pop(a));
         FT_CHECK(s.pop(b));
-        Cell c(a.bits + b.bits);
-        return s.push(c);
+        return s.push(a.bits + b.bits);
+      });
+
+      defw(":", [](State& s) {
+        // Set input mode to wait for word
+        if(*s.shared[S_WORD_AVAILABLE] == 0) {
+          return E_WANT_WORD;
+        }
+
+        std::cout << "I shall go forth and define " << s.scratch << std::endl; 
+        return E_OK;
       });
     }
   ~State() {}
-
 
   /**
    * The data stack
@@ -265,16 +294,21 @@ struct State {
 
   /***** DICTIONARY PRIMITIVES */
 
+  static size_t align(int boundary, size_t value) {
+    return (size_t)((value + (boundary - 1)) & -boundary);
+  }
+
   /**
    * Allocate some memory for general purpose use
    */
   Error allot(size_t req, char*& addr) {
+    // std::cout << "allocated " << req << " memory " << std::endl;
     if(memory_i + req > memory_size) {
       return E_OUT_OF_MEMORY;
     }
 
-    addr = memory;
-    
+    addr = &memory[memory_i];
+
     memory_i += req;
 
     return E_OK;
@@ -285,14 +319,14 @@ struct State {
    */
   Error defw(const char* name, c_word_t word) {
     size_t name_length = strlen(name);
-    size_t size = sizeof(DictEntry) + name_length + sizeof(c_word_t);
+    size_t size = sizeof(DictEntry) + name_length + 1 + sizeof(c_word_t);
     char* dict_addr = 0;
 
     FT_CHECK(allot(size, dict_addr));
 
     DictEntry* d = (DictEntry*) dict_addr;
 
-    d->previous = shared[G_LATEST].as<DictEntry>(); // (DictEntry*) shared[G_LATEST].bits;
+    d->previous = shared[S_LATEST].as<DictEntry>();
     d->flags = DictEntry::FLAG_CWORD;
     d->name_length = name_length;
     strncpy(d->name, name, name_length);
@@ -306,12 +340,13 @@ struct State {
 
     (*ptr) = word;
 
-    FT_ASSERT(d->previous == shared[G_LATEST].as<DictEntry>());
+    FT_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
     FT_ASSERT(d->flags == DictEntry::FLAG_CWORD);
     FT_ASSERT(d->name_length == name_length);
     FT_ASSERT(strncmp(d->name, name, name_length) == 0);
     FT_ASSERT(*d->data<size_t>() == (size_t) word);
-    shared[G_LATEST].set(d);
+
+    shared[S_LATEST].set(d);
 
     return E_OK;
   }
@@ -320,7 +355,7 @@ struct State {
    * Lookup a word in the dictionary
    */
   DictEntry* lookup(const char* name) const {
-    DictEntry* e = shared[G_LATEST].as<DictEntry>();
+    DictEntry* e = shared[S_LATEST].as<DictEntry>();
 
     while(e) {
       if(strncmp(e->name, name, e->name_length) == 0) {
@@ -334,31 +369,105 @@ struct State {
 
   /***** MAIN INTERPRETER */
 
-  /** 
-   * Execute arbitrary code
-   */
-  Error exec(const char* s) {
+  const char* input;
+  size_t input_i;
+  size_t input_size;
+  ptrdiff_t token_number;
+
+  Error next_token(Token& tk) {
     char c;
-    size_t i = 0;
-    while((c = *s++)) {
-      i++;
+    while(input_i < input_size) {
+      char c = input[input_i++];
       if(isdigit(c)) {
         // Number: read and push onto stack
         ptrdiff_t n = c - '0';
-        while((c = *s++)) {
+        while(input_i < input_size) {
+          c = input[input_i++];
           if(isdigit(c)) {
             n *= 10;
             n += (c - '0');
           } else {
-            s--;
+            input_i--;
             break;
           }
         }
-        Cell num(n);
-        FT_CHECK(push(num));
+        token_number = n;
+        tk = TK_NUMBER;
+        return E_OK;
       } else if(isspace(c)) {
         // Skip whitespace
         continue;
+      } else {
+        // Read a word
+        scratch_i = 1;
+        scratch[0] = c;
+        while(input_i < input_size) {
+          c = input[input_i++];
+          if(isspace(c)) { 
+            break;
+          }
+          FT_CHECK(scratch_put(c));
+        }
+        FT_CHECK(scratch_put('\0'));
+        tk = TK_WORD;
+        return E_OK;
+      }
+    }
+    tk = TK_END;
+    return E_OK;
+  }
+
+  /** 
+   * Execute arbitrary code
+   */
+  Error exec(const char* input_) {
+    input = input_;
+    input_size = strlen(input_);
+    input_i = 0;
+
+    Token tk;
+    FT_CHECK(next_token(tk));
+    while(tk != TK_END) {
+      if(tk == TK_NUMBER) {
+        push(token_number);
+      } else if(tk == TK_WORD) {
+        // We now have a word, look it up in the dictionary
+        DictEntry* word = lookup(scratch);
+
+        if(word) {
+          // This is a C++ word, invoke and check return value
+          if(word->flags & DictEntry::FLAG_CWORD) {
+            c_word_t cw = *word->data<c_word_t>();
+
+            Error e = cw(*this);
+            if(e == E_WANT_WORD) {
+              // Attempt to read additional word name to pass through
+
+              // Nothing more
+              // if(*s == '\0') return e;
+
+              // while((c = *s++)) {
+                // if(isspace(c)) continue;
+              // }
+
+              // When this is done, set S_WORD_AVAILABLE = 1
+              // re-invoke word and check all error codes, continue to read
+              shared[S_WORD_AVAILABLE] = 1;
+            } else if(e != E_OK) {
+              return e;
+            }
+          }
+        }
+      }
+      FT_CHECK(next_token(tk));
+    }
+    return E_OK;
+    /*
+    Token tk = next_token(s);
+    FT_CHECK(next_token(s, tk));
+    return E_OUT_OF_MEMORY;
+    */
+    /*
       } else {
         scratch_i = 1;
         scratch[0] = c;
@@ -370,22 +479,10 @@ struct State {
         }
         FT_CHECK(scratch_put('\0'));
 
-        // We now have a word, look it up in the dictionary
-        DictEntry* word = lookup(scratch);
-
-        if(word) {
-          if(word->flags & DictEntry::FLAG_CWORD) {
-            c_word_t cw = *word->data<c_word_t>();
-            Error e = cw(*this);
-            if(e != E_OK) return e;
+      
+              // FT_CHECK(e);
           }
-          // COLON
-          // expects a word after it
-
-          // once it gets that word, it creates a new dictionary entry with that
-          // word
-
-          // and sets COMPILING mode!
+      
         }
 
       }
@@ -398,6 +495,7 @@ struct State {
       // If compiling, push code 
     }
     return E_OK;
+    */
   }
 };
 
