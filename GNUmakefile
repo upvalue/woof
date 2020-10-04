@@ -1,6 +1,8 @@
 CC := clang
 CXX := clang++
 
+all: repl test
+
 vendor/linenoise/linenoise.o: vendor/linenoise/linenoise.c
 	$(CC) -O2 -c -o $@ $<
 

@@ -64,14 +64,12 @@ enum Error {
   E_STACK_UNDERFLOW,
   E_STACK_OVERFLOW,
   E_OUT_OF_MEMORY,
-  /**
-   * Encountered something that was too large for scratch space, such as a very long word name
-   */
+  /** Encountered something that was too large for scratch space, such as a very long word name */
   E_OUT_OF_SCRATCH,
-  /**
-   * For defining words -- requests that a word is available in scratch space.
-   */
+  /** For defining words -- requests that a word is available in scratch space. */
   E_WANT_WORD,
+  /** Word not found */
+  E_WORD_NOT_FOUND
 };
 
 inline const char* error_description(const Error e) {
@@ -81,6 +79,7 @@ inline const char* error_description(const Error e) {
     case E_STACK_OVERFLOW: return "stack overflow";
     case E_OUT_OF_MEMORY: return "out of memory";
     case E_WANT_WORD: return "wanted a word";
+    case E_WORD_NOT_FOUND: return "word not found";
     default: return "unknown";
   }
 }
@@ -148,6 +147,7 @@ struct DictEntry {
   
   // The actual data in the dictionary comes afterwards
   template <class T> T* data() const {
+    // TODO: Should probably make this aligned
     return (T*) (((size_t) this) + sizeof(DictEntry) + name_length + 1);
   }
 };
@@ -167,6 +167,8 @@ typedef Error (*c_word_t)(State&);
 enum {
   /** Latest dictionary entry */
   S_LATEST,
+  /** Current location in memory */
+  S_HERE, 
   /** Input mode */
   S_WORD_AVAILABLE,
   /** Compiling */
@@ -183,6 +185,19 @@ enum Token {
   TK_NUMBER,
   TK_WORD,
   TK_END,
+};
+
+enum Opcode {
+  /** Null -- should not be encountered */
+  OP_UNKNOWN,
+  /** Push an immediate value */
+  OP_PUSH_IMMEDIATE,
+  /** Call another Forth word */
+  OP_CALL_FORTH,
+  /** Call out to a C++ defined word. Must be followed by a C++ function address */
+  OP_CALL_C,
+  /** Exit current word */
+  OP_EXIT,
 };
 
 /**
@@ -205,12 +220,7 @@ struct State {
       memset(scratch, 0, FT_SCRATCH_SIZE);
       memset(shared, 0, shared_size);
 
-      // Define builtin words
-      defw("hello", [](State& s) {
-        printf("Hello world.");
-        return E_OK;
-      });
-
+      /** BUILTIN WORDS */
       defw("+", [](State& s) {
         Cell a, b;
         FT_CHECK(s.pop(a));
@@ -224,9 +234,23 @@ struct State {
           return E_WANT_WORD;
         }
 
-        std::cout << "I shall go forth and define " << s.scratch << std::endl; 
+        s.shared[S_WORD_AVAILABLE] = 0;
+        s.shared[S_COMPILING] = 1;
+
+        // TODO: Here we need to create the actual word
+        DictEntry* d = 0;
+        return s.create(s.scratch, d);
+      });
+
+      defw(";", [](State& s) {
+        s.dict_push(OP_EXIT);
+        s.shared[S_COMPILING] = 0;
         return E_OK;
       });
+
+      // TODO: comma
+      // TODO: if/else
+      // TODO: throw
     }
   ~State() {}
 
@@ -314,39 +338,63 @@ struct State {
     return E_OK;
   }
 
-  /**
-   * Add a Forth word backed by a C++ function
-   */
-  Error defw(const char* name, c_word_t word) {
+  /** Add a forth word */
+  Error create(const char* name, DictEntry*& d) {
     size_t name_length = strlen(name);
-    size_t size = sizeof(DictEntry) + name_length + 1 + sizeof(c_word_t);
+    size_t size = sizeof(DictEntry) + name_length + 1;
     char* dict_addr = 0;
 
     FT_CHECK(allot(size, dict_addr));
 
-    DictEntry* d = (DictEntry*) dict_addr;
+    d = (DictEntry*) dict_addr;
 
     d->previous = shared[S_LATEST].as<DictEntry>();
-    d->flags = DictEntry::FLAG_CWORD;
     d->name_length = name_length;
     strncpy(d->name, name, name_length);
 
-    c_word_t* ptr = d->data<c_word_t>();
+    FT_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
+    FT_ASSERT(d->name_length == name_length);
+    FT_ASSERT(strncmp(d->name, name, name_length) == 0);
+
+    shared[S_LATEST].set(d);
+
+    return E_OK;
+  }
+
+  /**
+   * Add a Forth word backed by a C++ function
+   */
+  Error defw(const char* name, c_word_t word) {
+    DictEntry* d = 0;
+    FT_CHECK(create(name, d));
+
+    d->flags = DictEntry::FLAG_CWORD;
+
+    dict_push((size_t)word);
 
     // TODO: It's possible for Forth code to overwrite this and cause us to call an invalid value
     // which would make ft.h crash. One possibility would be registering all C functions in an array
     // and only calling known indexes in that array. That way, even corrupted forth code could not
     // segfault.
 
-    (*ptr) = word;
-
-    FT_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
-    FT_ASSERT(d->flags == DictEntry::FLAG_CWORD);
-    FT_ASSERT(d->name_length == name_length);
-    FT_ASSERT(strncmp(d->name, name, name_length) == 0);
     FT_ASSERT(*d->data<size_t>() == (size_t) word);
+    FT_ASSERT(d->flags == DictEntry::FLAG_CWORD);
 
-    shared[S_LATEST].set(d);
+    return E_OK;
+  }
+
+  /** Push a cell into memory, comma in Forth */
+  Error dict_push(Cell cell) {
+    if(memory_i + sizeof(Cell) > memory_size) {
+      return E_OUT_OF_MEMORY;
+    }
+
+
+    Cell* addr = (Cell*) &memory[memory_i];
+    // std::cout << "push " << cell.bits << "@" << (ptrdiff_t) addr << std::endl;
+    (*addr) = cell;
+
+    memory_i += sizeof(Cell);
 
     return E_OK;
   }
@@ -429,73 +477,75 @@ struct State {
     FT_CHECK(next_token(tk));
     while(tk != TK_END) {
       if(tk == TK_NUMBER) {
-        push(token_number);
+        // If interpreting, push directly
+        if(*shared[S_COMPILING] == 0) {
+          push(token_number);
+        } else {
+          // If compiling, push opcode
+          dict_push(OP_PUSH_IMMEDIATE);
+          dict_push(token_number);
+        }
       } else if(tk == TK_WORD) {
         // We now have a word, look it up in the dictionary
         DictEntry* word = lookup(scratch);
 
         if(word) {
           // This is a C++ word, invoke and check return value
+
+          // TODO: If in compiling mode, we should check immediacy first
+          // and if not push OP_CALL_C
           if(word->flags & DictEntry::FLAG_CWORD) {
             c_word_t cw = *word->data<c_word_t>();
 
             Error e = cw(*this);
             if(e == E_WANT_WORD) {
               // Attempt to read additional word name to pass through
+              Token tk2;
+              FT_CHECK(next_token(tk2));
 
-              // Nothing more
-              // if(*s == '\0') return e;
+              // Whatever we got wasn't a word, so just pass the error through
+              if(tk2 != TK_WORD) return E_WANT_WORD;
 
-              // while((c = *s++)) {
-                // if(isspace(c)) continue;
-              // }
-
-              // When this is done, set S_WORD_AVAILABLE = 1
-              // re-invoke word and check all error codes, continue to read
               shared[S_WORD_AVAILABLE] = 1;
+
+              cw(*this);
             } else if(e != E_OK) {
               return e;
             }
+          } else {
+            ptrdiff_t* code = word->data<ptrdiff_t>();
+            exec(code);
           }
+        } else {
+          return E_WORD_NOT_FOUND;
         }
       }
       FT_CHECK(next_token(tk));
     }
+
     return E_OK;
-    /*
-    Token tk = next_token(s);
-    FT_CHECK(next_token(s, tk));
-    return E_OUT_OF_MEMORY;
-    */
-    /*
-      } else {
-        scratch_i = 1;
-        scratch[0] = c;
-        while((c = *s++)) {
-          if(isspace(c)) {
-            break;
-          }
-          FT_CHECK(scratch_put(c));
-        }
-        FT_CHECK(scratch_put('\0'));
+  }
 
-      
-              // FT_CHECK(e);
-          }
-      
+  /** Execute user defined Forth code */
+  Error exec(ptrdiff_t* code) {
+    while(true) {
+      switch(*code++) {
+        case OP_PUSH_IMMEDIATE: {
+          ptrdiff_t n = *code++;
+          push(n);
+          continue;
         }
-
+        case OP_EXIT: {
+          return E_OK;
+        }
+        case OP_UNKNOWN: default: {
+          std::cout << "unknown opcode" << *code << std::endl;
+        }
       }
-
-      if(c == '\0') break;
-
-      // Allow words to read other words here
-      // Switch on mode
-      // If interpreting, call word immediately
-      // If compiling, push code 
+      // TODO: Check that code addresses are valid.
+      // Find until exit
+      return E_OK;
     }
-    return E_OK;
-    */
   }
 };
 
