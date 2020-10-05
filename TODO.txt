@@ -8,4 +8,6 @@ x allow user defined forth words
 -- then overwrites address with actual code address
 -- need to implement HERE
 - write basic prelude
-- better error reporting
+- better error reporting (format some stuff, stack trace maybe)
+- switch memory addresses to relative to forth, and only allow references to into forth
+- 

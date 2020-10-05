@@ -33,6 +33,10 @@
 
 namespace ft {
 
+inline size_t align(int boundary, size_t value) {
+  return (size_t)((value + (boundary - 1)) & -boundary);
+}
+
 /**
  * A word (as in system word) sized integer.
  */
@@ -151,7 +155,7 @@ struct DictEntry {
   // The actual data in the dictionary comes afterwards
   template <class T> T* data() const {
     // TODO: Should probably make this aligned
-    return (T*) (((size_t) this) + sizeof(DictEntry) + name_length + 1);
+    return (T*) (((size_t) this) + sizeof(DictEntry) + align(sizeof(ptrdiff_t), name_length + 1));
   }
 };
 
@@ -192,19 +196,19 @@ enum Token {
 
 enum Opcode {
   /** Null -- should not be encountered */
-  OP_UNKNOWN,
+  OP_UNKNOWN = 0,
   /** Push an immediate value */
-  OP_PUSH_IMMEDIATE,
+  OP_PUSH_IMMEDIATE = 1,
   /** Call another Forth word */
-  OP_CALL_FORTH,
+  OP_CALL_FORTH = 2,
   /** Call out to a C++ defined word. Must be followed by a C++ function address */
-  OP_CALL_C,
+  OP_CALL_C = 3,
   /** Jump to next address if top of stack is zero */
-  OP_JUMP_IF_ZERO,
+  OP_JUMP_IF_ZERO = 4,
   /** Jump to the next address */
-  OP_JUMP,
+  OP_JUMP = 5,
   /** Exit current word */
-  OP_EXIT,
+  OP_EXIT = 6,
 };
 
 /**
@@ -222,10 +226,10 @@ struct State {
     shared_i(0),
     shared_size(cfg.shared_size),
     scratch_i(0) {
-      memset(stack, 0, stack_size);
+      memset(stack, 0, stack_size * sizeof(Cell));
       memset(memory, 0, memory_size);
       memset(scratch, 0, FT_SCRATCH_SIZE);
-      memset(shared, 0, shared_size);
+      memset(shared, 0, shared_size * sizeof(Cell));
 
       /***** BUILTIN WORDS */
 
@@ -274,12 +278,51 @@ struct State {
         return E_OK;
       }, true);
       
+      // Marks a word to be immediately executed, even when
+      // in compiler mode
       defw("immediate", [](State& s) {
         DictEntry *d = s.shared[S_LATEST].as<DictEntry>();
         if((d->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
           d->flags += DictEntry::FLAG_IMMEDIATE;
         }
         return E_OK;
+      });
+
+      defw(",", [](State& s) {
+        // Write something to here and bump it 
+        return E_OK;
+      });
+
+      /***** MEMORY MANIPULATION */
+
+      defw("!", [](State& s) {
+        // Store data at address
+        Cell addrcell, data;
+        FT_CHECK(s.pop(addrcell));
+        FT_CHECK(s.pop(data));
+
+        ptrdiff_t *addr = addrcell.as<ptrdiff_t>();
+
+        (*addr) = data.bits;
+        // TODO: Check if valid memory reference
+
+        return E_OK;
+      });
+
+      defw("here", [](State& s) {
+        s.push((size_t)&s.memory[s.memory_i]);
+        return E_OK;
+      });
+
+      defw("WORD", [](State& s) {
+        s.push(sizeof(ptrdiff_t));
+        return E_OK;
+      });
+
+      defw("@", [](State& s) {
+        // Access data at address
+        return E_OK;
+
       });
 
       /***** STACK MANIPULATION WORDS */
@@ -383,10 +426,6 @@ struct State {
 
   /***** DICTIONARY PRIMITIVES */
 
-  static size_t align(int boundary, size_t value) {
-    return (size_t)((value + (boundary - 1)) & -boundary);
-  }
-
   /**
    * Allocate some memory for general purpose use
    */
@@ -406,7 +445,7 @@ struct State {
   /** Add a forth word */
   Error create(const char* name, DictEntry*& d) {
     size_t name_length = strlen(name);
-    size_t size = sizeof(DictEntry) + name_length + 1;
+    size_t size = sizeof(DictEntry) + align(sizeof(ptrdiff_t), name_length + 1);
     char* dict_addr = 0;
 
     FT_CHECK(allot(size, dict_addr));
@@ -632,11 +671,10 @@ struct State {
           break;
         }
         case OP_JUMP: {
+          // TODO
           break;
 
         }
-        // TODO OP_JUMP_IF_ZERO
-        // OP_JUMP
         case OP_UNKNOWN: default: {
           std::cout << "unknown opcode" << *code << std::endl;
         }
@@ -646,6 +684,7 @@ struct State {
   }
 };
 
-};
+}
+;
 
 #endif
