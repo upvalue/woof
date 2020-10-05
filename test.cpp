@@ -40,4 +40,9 @@ TEST_CASE("ft.h") {
     CHECK(s.si == 1);
     CHECK(s.stack[0].bits == 5);
   }
+
+  SUBCASE("can modify code while compiling") {
+    CHECK(s.exec(": exit-early 6 , ; immediate : asdf exit-early 1 ;") == E_OK);
+    CHECK(s.si == 0);
+  }
 }

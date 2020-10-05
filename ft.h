@@ -289,6 +289,9 @@ struct State {
       });
 
       defw(",", [](State& s) {
+        Cell c;
+        FT_CHECK(s.pop(c));
+        s.dict_put(c);
         // Write something to here and bump it 
         return E_OK;
       });
@@ -304,7 +307,8 @@ struct State {
         ptrdiff_t *addr = addrcell.as<ptrdiff_t>();
 
         (*addr) = data.bits;
-        // TODO: Check if valid memory reference
+
+        // TODO: Check for valid in-memory reference
 
         return E_OK;
       });
@@ -321,8 +325,8 @@ struct State {
 
       defw("@", [](State& s) {
         // Access data at address
+        // TODO
         return E_OK;
-
       });
 
       /***** STACK MANIPULATION WORDS */

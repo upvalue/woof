@@ -7,7 +7,14 @@ x allow user defined forth words
 -- so if leaves a jmp_if_zero, address (push address of code onto stack)
 -- then overwrites address with actual code address
 -- need to implement HERE
+- fibonacci numbers
 - write basic prelude
 - better error reporting (format some stuff, stack trace maybe)
 - switch memory addresses to relative to forth, and only allow references to into forth
 - 
+- loops of some kind
+- game of life
+- gfx bindings
+- console game of life
+- graphical game of life
+- figure out distribution?
