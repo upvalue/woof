@@ -1,5 +1,11 @@
 x implement definition of C++ words
 x basic calling
-- basic calling from within forth
-- allow user defined forth words
+x basic calling from within forth
+x allow user defined forth words
+- figure out if/then/else
+-- basic idea, similar to traditional forths but rather than emitting another word "0branch" or whatever, you emit insns
+-- so if leaves a jmp_if_zero, address (push address of code onto stack)
+-- then overwrites address with actual code address
+-- need to implement HERE
 - write basic prelude
+- better error reporting

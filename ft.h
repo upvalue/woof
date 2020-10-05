@@ -69,7 +69,9 @@ enum Error {
   /** For defining words -- requests that a word is available in scratch space. */
   E_WANT_WORD,
   /** Word not found */
-  E_WORD_NOT_FOUND
+  E_WORD_NOT_FOUND,
+  E_DIVIDE_BY_ZERO,
+
 };
 
 inline const char* error_description(const Error e) {
@@ -80,6 +82,7 @@ inline const char* error_description(const Error e) {
     case E_OUT_OF_MEMORY: return "out of memory";
     case E_WANT_WORD: return "wanted a word";
     case E_WORD_NOT_FOUND: return "word not found";
+    case E_DIVIDE_BY_ZERO: return "divide by zero";
     default: return "unknown";
   }
 }
@@ -196,6 +199,10 @@ enum Opcode {
   OP_CALL_FORTH,
   /** Call out to a C++ defined word. Must be followed by a C++ function address */
   OP_CALL_C,
+  /** Jump to next address if top of stack is zero */
+  OP_JUMP_IF_ZERO,
+  /** Jump to the next address */
+  OP_JUMP,
   /** Exit current word */
   OP_EXIT,
 };
@@ -220,16 +227,28 @@ struct State {
       memset(scratch, 0, FT_SCRATCH_SIZE);
       memset(shared, 0, shared_size);
 
-      /** BUILTIN WORDS */
+      /***** BUILTIN WORDS */
+
+      /***** ARITHMETIC / COMPARISON */
+
       defw("+", [](State& s) {
         Cell a, b;
         FT_CHECK(s.pop(a));
         FT_CHECK(s.pop(b));
-        return s.push(a.bits + b.bits);
+        return s.push(b.bits + a.bits);
       });
 
+      defw("-", [](State& s) {
+        Cell a, b;
+        FT_CHECK(s.pop(a));
+        FT_CHECK(s.pop(b));
+        return s.push(b.bits - a.bits);
+      });
+
+      /***** META / SYSTEM WORDS */
+
       defw(":", [](State& s) {
-        // Set input mode to wait for word
+        // Wait for word in scratch
         if(*s.shared[S_WORD_AVAILABLE] == 0) {
           return E_WANT_WORD;
         }
@@ -237,7 +256,6 @@ struct State {
         s.shared[S_WORD_AVAILABLE] = 0;
         s.shared[S_COMPILING] = 1;
 
-        // TODO: Here we need to create the actual word
         DictEntry* d = 0;
         return s.create(s.scratch, d);
       });
@@ -247,6 +265,26 @@ struct State {
         s.shared[S_COMPILING] = 0;
         return E_OK;
       }, true);
+
+      /***** STACK MANIPULATION WORDS */
+
+      defw("dup", [](State& s) {
+        Cell c;
+        FT_CHECK(s.pick(0, c));
+        return s.push(c);
+      });
+
+      defw("drop", [](State& s) {
+        return s.drop(1);
+      });
+
+      defw("swap", [](State& s) {
+        Cell a, b;
+        FT_CHECK(s.pop(a));
+        FT_CHECK(s.pop(b));
+        FT_CHECK(s.push(a));
+        return s.push(b);
+      });
 
       // TODO: comma
       // TODO: if/else
@@ -303,6 +341,17 @@ struct State {
       return E_STACK_UNDERFLOW;
     }
     si -= n;
+    return E_OK;
+  }
+
+  /**
+   * Pick ith value off the stack (0 is top, 1 is one from the top etc)
+   */
+  Error pick(ptrdiff_t i, Cell& c) {
+    if(i >= si) {
+      return E_STACK_UNDERFLOW;
+    }
+    c = stack[si-i-1];
     return E_OK;
   }
 
@@ -393,9 +442,7 @@ struct State {
       return E_OUT_OF_MEMORY;
     }
 
-
     Cell* addr = (Cell*) &memory[memory_i];
-    // std::cout << "push " << cell.bits << "@" << (ptrdiff_t) addr << std::endl;
     (*addr) = cell;
 
     memory_i += sizeof(Cell);
@@ -494,17 +541,19 @@ struct State {
         DictEntry* word = lookup(scratch);
 
         if(word) {
+          // If in compilation and this is not an immediate word
           if(*shared[S_COMPILING] && (word->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
-            if((word->flags & DictEntry::FLAG_CWORD) == 0) {
-              dict_put(OP_CALL_FORTH);
-              dict_put((ptrdiff_t) word->data<ptrdiff_t>());
-            } else {
+            if(word->flags & DictEntry::FLAG_CWORD) {
+              // Push c call followed by function pointer
               dict_put(OP_CALL_C);
               dict_put(*word->data<ptrdiff_t>());
+            } else {
+              // Push forth call followed by pointer to forth VM code
+              dict_put(OP_CALL_FORTH);
+              dict_put((ptrdiff_t) word->data<ptrdiff_t>());
             }
           } else {
-            // TODO: If in compiling mode, we should check immediacy first
-            // and if not push OP_CALL_C
+            // Either interpreting or this is an immediate word
             if(word->flags & DictEntry::FLAG_CWORD) {
               c_word_t cw = *word->data<c_word_t>();
 
@@ -540,7 +589,7 @@ struct State {
 
   /** Execute user defined Forth code */
   Error exec(ptrdiff_t* code) {
-    // TODO: Check that code addresses are valid.
+    // TODO: Check that code addresses are valid memory.
     while(true) {
       switch(*code++) {
         case OP_PUSH_IMMEDIATE: {
@@ -561,6 +610,17 @@ struct State {
         case OP_EXIT: {
           return E_OK;
         }
+        case OP_JUMP_IF_ZERO: {
+          // Check stack
+          // jump if zero, otherwise continue
+          break;
+        }
+        case OP_JUMP: {
+          break;
+
+        }
+        // TODO OP_JUMP_IF_ZERO
+        // OP_JUMP
         case OP_UNKNOWN: default: {
           std::cout << "unknown opcode" << *code << std::endl;
         }
