@@ -245,6 +245,14 @@ struct State {
         return s.push(b.bits - a.bits);
       });
 
+      /***** I/O */
+      defw(".", [](State& s) {
+        Cell x;
+        FT_CHECK(s.pop(x));
+        printf("%ld\n", x.bits);
+        return E_OK;
+      });
+
       /***** META / SYSTEM WORDS */
 
       defw(":", [](State& s) {
@@ -265,6 +273,14 @@ struct State {
         s.shared[S_COMPILING] = 0;
         return E_OK;
       }, true);
+      
+      defw("immediate", [](State& s) {
+        DictEntry *d = s.shared[S_LATEST].as<DictEntry>();
+        if((d->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
+          d->flags += DictEntry::FLAG_IMMEDIATE;
+        }
+        return E_OK;
+      });
 
       /***** STACK MANIPULATION WORDS */
 
