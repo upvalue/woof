@@ -52,4 +52,14 @@ TEST_CASE("ft.h") {
     CHECK(s.stack[0].bits == 1);
     CHECK(s.stack[1].bits == 6);
   }
+  
+  SUBCASE("can write and read memory") {
+    CHECK(s.exec("5 , here WORD - @") == E_OK);
+    CHECK(s.si == 1);
+    CHECK(s.stack[0].bits == 5);
+
+    CHECK(s.exec("5 , 999 here WORD - ! here WORD - @") == E_OK);
+    CHECK(s.si == 2);
+    CHECK(s.stack[1].bits == 999);
+  }
 }

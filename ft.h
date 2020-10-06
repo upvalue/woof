@@ -310,6 +310,10 @@ struct State {
 
         // TODO: Check for valid in-memory reference
 
+        // Although one option this does enable is just
+        // giving Forth straight up pointers to C things
+        // and overwriting them.
+
         return E_OK;
       });
 
@@ -324,9 +328,12 @@ struct State {
       });
 
       defw("@", [](State& s) {
-        // Access data at address
-        // TODO
-        return E_OK;
+        Cell addrcell;
+        FT_CHECK(s.pop(addrcell));
+
+        ptrdiff_t addr = *addrcell.as<ptrdiff_t>();
+
+        return s.push(addr);
       });
 
       /***** STACK MANIPULATION WORDS */
