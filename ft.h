@@ -7,10 +7,22 @@
 #include <stddef.h>
 #include <string.h>
 
-// TODO: Remove STL dependency
-#include <iostream>
+// Trace all virtual machine access
+#define FT_VM (1 << 1)
+// Trace all evaluation code
+#define FT_EVAL (1 << 2)
+
+// Logs for debugging only.
+#define FT_LOG_TAGS (FT_VM)
+
+#if FT_LOG_TAGS
+# define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
+#else
+# define FT_LOG(tag, exp)
+#endif 
 
 #define FT_ASSERT(x) assert(x)
+
 
 /**
  * Check for an error and return if there was one
@@ -75,7 +87,8 @@ enum Error {
   /** Word not found */
   E_WORD_NOT_FOUND,
   E_DIVIDE_BY_ZERO,
-
+  /** Unknown opcode encountered in VM -- most likely something bad was written by a Forth word */
+  E_INVALID_OPCODE
 };
 
 inline const char* error_description(const Error e) {
@@ -441,7 +454,6 @@ struct State {
    * Allocate some memory for general purpose use
    */
   Error allot(size_t req, char*& addr) {
-    // std::cout << "allocated " << req << " memory " << std::endl;
     if(memory_i + req > memory_size) {
       return E_OUT_OF_MEMORY;
     }
@@ -664,24 +676,29 @@ struct State {
   /** Execute user defined Forth code */
   Error exec(ptrdiff_t* code) {
     // TODO: Check that code addresses are valid memory.
+    size_t ip = 0;
     while(true) {
-      switch(*code++) {
+      switch(code[ip++]) {
         case OP_PUSH_IMMEDIATE: {
-          ptrdiff_t n = *code++;
+          ptrdiff_t n = code[ip++];
+          FT_LOG(FT_VM, "OP_PUSH_IMMEDIATE @ " << (size_t)&code[ip-2] << ' ' << n);
           push(n);
           continue;
         }
         case OP_CALL_FORTH: {
-          ptrdiff_t* next = (ptrdiff_t*)(*code++);
+          ptrdiff_t* next = (ptrdiff_t*) code[ip++];
+          FT_LOG(FT_VM, "OP_CALL_FORTH @ " << (size_t)&code[ip-2] << ' ' << next);
           FT_CHECK(exec(next));
           continue;
         }
         case OP_CALL_C: {
-          c_word_t cw = (c_word_t)(*code++);
+          c_word_t cw = (c_word_t) code[ip++];
+          FT_LOG(FT_VM, "OP_CALL_C @ " << (size_t)&code[ip-2] << ' ' << (size_t) cw);
           FT_CHECK(cw(*this));
           continue;
         }
         case OP_EXIT: {
+          FT_LOG(FT_VM, "OP_EXIT @ " << (size_t)&code[ip-1]);
           return E_OK;
         }
         case OP_JUMP_IF_ZERO: {
@@ -689,7 +706,8 @@ struct State {
           if(si == 0) {
             return E_STACK_UNDERFLOW;
           }
-          ptrdiff_t label = *code++;
+          ptrdiff_t label = code[ip++];
+          FT_LOG(FT_VM, "OP_JUMP_IF_ZERO @ " << (size_t)&code[ip-2] << ' ' << (size_t)label);
           si -= 1;
           if(stack[si].bits == 0) {
             code = (ptrdiff_t*) label;
@@ -698,13 +716,13 @@ struct State {
           break;
         }
         case OP_JUMP: {
-          ptrdiff_t label = *code++;
+          ptrdiff_t label = code[ip++];
+          FT_LOG(FT_VM, "OP_JUMP @" << label);
           code = (ptrdiff_t*) label;
           break;
-
         }
         case OP_UNKNOWN: default: {
-          std::cout << "unknown opcode" << *code << std::endl;
+          return E_INVALID_OPCODE;
         }
       }
       return E_OK;
@@ -712,7 +730,6 @@ struct State {
   }
 };
 
-}
-;
+}; // namespace ft
 
 #endif
