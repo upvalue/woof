@@ -13,7 +13,8 @@
 #define FT_EVAL (1 << 2)
 
 // Logs for debugging only.
-#define FT_LOG_TAGS (FT_VM)
+// #define FT_LOG_TAGS (FT_VM)
+#define FT_LOG_TAGS 0
 
 #if FT_LOG_TAGS
 # define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
@@ -260,6 +261,13 @@ struct State {
         FT_CHECK(s.pop(a));
         FT_CHECK(s.pop(b));
         return s.push(b.bits - a.bits);
+      });
+
+      defw(">", [](State& s) {
+        Cell a, b;
+        FT_CHECK(s.pop(a));
+        FT_CHECK(s.pop(b));
+        return s.push(b.bits > a.bits ? -1 : 0);
       });
 
       /***** I/O */
