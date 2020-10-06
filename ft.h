@@ -462,7 +462,7 @@ struct State {
 
     FT_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
     FT_ASSERT(d->name_length == name_length);
-    FT_ASSERT(strncmp(d->name, name, name_length) == 0);
+    FT_ASSERT(strcmp(d->name, name) == 0);
 
     shared[S_LATEST].set(d);
 
@@ -516,7 +516,7 @@ struct State {
     DictEntry* e = shared[S_LATEST].as<DictEntry>();
 
     while(e) {
-      if(strncmp(e->name, name, e->name_length) == 0) {
+      if(strcmp(e->name, name) == 0) {
         return e;
       }
       e = e->previous;
@@ -555,6 +555,14 @@ struct State {
       } else if(isspace(c)) {
         // Skip whitespace
         continue;
+      } else if(c == '\\') {
+        // swallow comments
+        while(input_i < input_size) {
+          c = input[input_i++];
+          if(c == '\n') {
+            break;
+          }
+        }
       } else {
         // Word
         scratch_i = 1;
@@ -671,11 +679,20 @@ struct State {
         }
         case OP_JUMP_IF_ZERO: {
           // Check stack
+          if(si == 0) {
+            return E_STACK_UNDERFLOW;
+          }
+          ptrdiff_t label = *code++;
+          si -= 1;
+          if(stack[si].bits == 0) {
+            code = (ptrdiff_t*) label;
+          }
           // jump if zero, otherwise continue
           break;
         }
         case OP_JUMP: {
-          // TODO
+          ptrdiff_t label = *code++;
+          code = (ptrdiff_t*) label;
           break;
 
         }

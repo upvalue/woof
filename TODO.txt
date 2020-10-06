@@ -2,6 +2,8 @@ x implement definition of C++ words
 x basic calling
 x basic calling from within forth
 x allow user defined forth words
+- comments
+- negative numbers
 - figure out if/then/else
 -- basic idea, similar to traditional forths but rather than emitting another word "0branch" or whatever, you emit insns
 -- so if leaves a jmp_if_zero, address (push address of code onto stack)
@@ -18,3 +20,4 @@ x allow user defined forth words
 - console game of life
 - graphical game of life
 - figure out distribution?
+- save forth images? (for cross-platform distribution maybe)

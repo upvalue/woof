@@ -45,4 +45,11 @@ TEST_CASE("ft.h") {
     CHECK(s.exec(": exit-early 6 , ; immediate : asdf exit-early 1 ;") == E_OK);
     CHECK(s.si == 0);
   }
+
+  SUBCASE("ignores comments") {
+    CHECK(s.exec("1 \\ 2 3 4 5\r\n6") == E_OK);
+    CHECK(s.si == 2);
+    CHECK(s.stack[0].bits == 1);
+    CHECK(s.stack[1].bits == 6);
+  }
 }
