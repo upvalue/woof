@@ -100,6 +100,7 @@ inline const char* error_description(const Error e) {
     case E_WANT_WORD: return "wanted a word";
     case E_WORD_NOT_FOUND: return "word not found";
     case E_DIVIDE_BY_ZERO: return "divide by zero";
+    case E_INVALID_OPCODE: return "invalid opcode";
     default: return "unknown";
   }
 }
@@ -167,7 +168,6 @@ struct DictEntry {
   
   // The actual data in the dictionary comes afterwards
   template <class T> T* data() const {
-    // TODO: Should probably make this aligned
     return (T*) (((size_t) this) + sizeof(DictEntry) + align(sizeof(ptrdiff_t), name_length + 1));
   }
 };
@@ -369,6 +369,73 @@ struct State {
         return s.push(b);
       });
 
+      defw("\'", [](State& s) {
+        if(*s.shared[S_WORD_AVAILABLE] == 0) {
+          return E_WANT_WORD;
+        }
+
+        s.shared[S_WORD_AVAILABLE] = 0;
+        DictEntry* d = s.lookup(s.scratch);
+        if(!d) return E_WORD_NOT_FOUND;
+
+        if((d->flags & DictEntry::FLAG_CWORD) != 0) {
+          // TODO fix this to be an actual error message
+          return E_DIVIDE_BY_ZERO;
+        }
+
+        return s.push((ptrdiff_t)d->data<ptrdiff_t>());
+
+        return E_OK;
+      });
+
+      // Print the VM code of a forth word. Assumes
+      // it is given an execution token, will read
+      // from addr to OP_EXIT
+      defw("decompile", [](State& s) {
+        Cell addrcell;
+        FT_CHECK(s.pop(addrcell));
+        ptrdiff_t* code = addrcell.as<ptrdiff_t>();
+        size_t ip = 0;
+        bool loop = true;
+        while(loop) {
+          ptrdiff_t opaddr = (ptrdiff_t) &code[ip];
+          ptrdiff_t op = code[ip++];
+          switch(op) {
+            case OP_PUSH_IMMEDIATE: {
+              printf("OP_PUSH_IMMEDIATE @ %ld (%ld)\n", opaddr, code[ip++]);
+              break;
+            }
+            case OP_CALL_FORTH: {
+              printf("OP_CALL_FORTH @ %ld (%ld)\n", opaddr, code[ip++]);
+              break;
+            }
+            case OP_CALL_C: {
+              printf("OP_CALL_C @ %ld (%ld)\n", opaddr, code[ip++]);
+              break;
+            }
+            case OP_JUMP_IF_ZERO: {
+              printf("OP_JUMP_IF_ZERO @ %ld (%ld)\n", opaddr, code[ip++]);
+              break;
+            }
+            case OP_JUMP: {
+              printf("OP_JUMP @ %ld (%ld)\n", opaddr, code[ip++]);
+              break;
+            }
+            case OP_EXIT: {
+              printf("OP_EXIT @ %ld\n", opaddr);
+              loop = false;
+              break;
+            }
+            case OP_UNKNOWN: default: {
+              printf("E_INVALID_OPCODE @ %ld %ld\n", opaddr, op);
+              loop = false;
+              break;
+            }
+          }
+        }
+        return E_OK;
+      });
+
       // TODO: comma
       // TODO: if/else
       // TODO: throw
@@ -446,6 +513,14 @@ struct State {
     }
     scratch[scratch_i++] = c;
     return E_OK;
+  }
+
+  Error errorf(Error e, const char* fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+    vsnprintf(scratch, FT_SCRATCH_SIZE, fmt, va);
+    va_end(va);
+    return e;
   }
 
   /***** DICTIONARY PRIMITIVES */
@@ -711,22 +786,25 @@ struct State {
           si -= 1;
           if(stack[si].bits == 0) {
             code = (ptrdiff_t*) label;
+            ip = 0;
           }
           // jump if zero, otherwise continue
           break;
         }
         case OP_JUMP: {
           ptrdiff_t label = code[ip++];
-          FT_LOG(FT_VM, "OP_JUMP @" << label);
+          FT_LOG(FT_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
+          ip = 0;
           code = (ptrdiff_t*) label;
           break;
         }
         case OP_UNKNOWN: default: {
+          FT_LOG(FT_VM, "E_VALID_OPCODE @ " << (size_t)&code[ip-1] << ' ' << code[ip-1]);
           return E_INVALID_OPCODE;
         }
       }
-      return E_OK;
     }
+    return E_OK;
   }
 };
 
