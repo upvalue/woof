@@ -638,8 +638,13 @@ struct State {
     char c;
     while(input_i < input_size) {
       char c = input[input_i++];
-      if(isdigit(c)) {
+      if((c == '-' && input_i < input_size && isdigit(input[input_i])) || isdigit(c)) {
         // Number
+        bool negative = false;
+        if(c == '-') {
+          c = input[input_i++];
+          negative = true;
+        }
         ptrdiff_t n = c - '0';
         while(input_i < input_size) {
           c = input[input_i++];
@@ -651,7 +656,7 @@ struct State {
             break;
           }
         }
-        token_number = n;
+        token_number = negative ? -n : n;
         tk = TK_NUMBER;
         return E_OK;
       } else if(isspace(c)) {

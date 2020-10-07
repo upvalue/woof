@@ -1,7 +1,32 @@
 x figure out if/then/else
-- fibonacci numbers
-- negative numbers
+x fibonacci numbers
+x negative numbers
 - write basic prelude
+- variables
+- local variables
+
+  how do to this : square { x } x x * ; 
+  where do local variable definitions live?
+  what does referencing a local variable do?
+
+  { x }
+  // this causes a word to be defined shadowing
+  // locals are hidden after word definition closes. (tbd how?)
+  // add an additional stack for locals
+  { x } 
+  // x is defined as a word that references a particular offset on the locals stack
+  // so { x y z }
+
+  // } finds all locals, adds code to move things from data stack to locals stack
+  // ; is extended to clean up locals
+
+  // also we don't necessarily need cleanup -- we know when we're crossing function boundaries,
+  // and can cleanup ourselves.
+
+  // i think this will work!
+
+
+
 - better error reporting 
 - switch memory addresses to relative to forth, and only allow references to into forth
 - stack traces
@@ -11,5 +36,6 @@ x figure out if/then/else
 - gfx bindings
 - graphical game of life
 - optimization
--- a pretty simple optimization would be to inline a lot of c words like arithmetic
--- a less simple optimization would be to compile to machine code, but still fairly easy compared to writing one for a high level language
+-- a pretty simple optimization would be to inline a lot of c words like arithmetic as opcodes
+- a less simple optimization would be to compile to machine code, but still fairly easy compared to writing one for a high level language
+
