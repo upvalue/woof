@@ -11,10 +11,12 @@
 #define FT_VM (1 << 1)
 // Trace all evaluation code
 #define FT_EVAL (1 << 2)
+// Trace various runtime things
+#define FT_RT (1 << 3)
 
 // Logs for debugging only.
-// #define FT_LOG_TAGS (FT_VM)
-#define FT_LOG_TAGS 0
+#define FT_LOG_TAGS (FT_VM + FT_RT)
+// #define FT_LOG_TAGS 0
 
 #if FT_LOG_TAGS
 # define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
@@ -92,7 +94,6 @@ enum Error {
   E_INVALID_OPCODE,
   /** Attempt to invoke a compile only word in interpreter mode */
   E_COMPILE_ONLY,
-
 };
 
 inline const char* error_description(const Error e) {
@@ -123,13 +124,16 @@ struct StateConfig {
 
   Cell* shared;
   size_t shared_size;
+
+  Cell* locals;
+  size_t locals_size;
 };
 
 
 /** 
  * A convenience method for struct StateConfig with statically allocated memory
  */
-template <size_t stack_size_num = 1024, size_t shared_size_num = 8, size_t memory_size_num = 1024 * 1024>
+template <size_t stack_size_num = 1024, size_t shared_size_num = 8, size_t locals_size_num = 256, size_t memory_size_num = 1024 * 1024>
 struct StaticStateConfig : StateConfig {
   StaticStateConfig() {
     stack = (Cell*) stack_store;
@@ -138,12 +142,16 @@ struct StaticStateConfig : StateConfig {
     memory = (char*) memory_store;
     memory_size = memory_size_num;
 
+    locals = (Cell*) locals_store;
+    locals_size = locals_size_num;
+
     shared = (Cell*) shared_store;
     shared_size = shared_size_num;
   }
 
   Cell* stack_store[stack_size_num];
   char* memory_store[memory_size_num];
+  Cell* locals_store[locals_size_num];
   Cell* shared_store[shared_size_num];
 };
 
@@ -187,7 +195,7 @@ struct State;
  */
 typedef Error (*c_word_t)(State&);
 
-/**
+/*a*
  * Reserved C++ and Forth variables. 
  * Start at S_USER_SHARED to define your own.
  */
@@ -200,6 +208,8 @@ enum {
   S_WORD_AVAILABLE,
   /** Compiling */
   S_COMPILING,
+  /** Local count, count of locals emitted in { */
+  S_LOCAL_COUNT,
   S_USER_SHARED,
 };
 
@@ -227,8 +237,14 @@ enum Opcode {
   OP_JUMP_IF_ZERO = 4,
   /** Jump to the next address */
   OP_JUMP = 5,
+  /** Jump to the next address, and ignore for the purposes of decompiling */
+  OP_JUMP_IGNORED = 6,
+  /** Push a local value onto the data stack */
+  OP_LOCAL_PUSH = 7,
+  /** Pop a value off of the data stack and push it onto the local stack */
+  OP_LOCAL_SET = 8,
   /** Exit current word */
-  OP_EXIT = 6,
+  OP_EXIT = 9,
 };
 
 /**
@@ -245,11 +261,15 @@ struct State {
     shared(cfg.shared),
     shared_i(0),
     shared_size(cfg.shared_size),
+    locals(cfg.locals),
+    locals_i(0),
+    locals_size(cfg.locals_size),
     scratch_i(0) {
       memset(stack, 0, stack_size * sizeof(Cell));
       memset(memory, 0, memory_size);
       memset(scratch, 0, FT_SCRATCH_SIZE);
       memset(shared, 0, shared_size * sizeof(Cell));
+      memset(locals, 0, locals_size * sizeof(Cell));
 
       /***** BUILTIN WORDS */
 
@@ -338,16 +358,55 @@ struct State {
           return E_WANT_WORD;
         }
 
-        printf("define local %s\n", s.scratch);
-
+        // If we found }, we're done
+        // Emit code to set locals and mark local definitions as hidden
         if(strcmp(s.scratch, "}") == 0) {
-          // Emit code that sets up local variables
+          for(size_t i = 0; i != *s.shared[S_LOCAL_COUNT]; i++) {
+            s.dict_put(OP_LOCAL_SET);
+          }
+
+          // Reset shared counters
+          s.shared[S_LOCAL_COUNT].bits = 0;
+          s.shared[S_WORD_AVAILABLE].bits = 0;
+
+          // Then quit
           return E_OK;
+
         }
 
+        // We're about to define a local word, so emit a jump past the dictionary entry to the rest
+        // of this word's code
+        s.dict_put(OP_JUMP_IGNORED);
+
+        // Emit a nonsense address here to overwrite in one second
+        // It would actually be possible to calculate this in advance
+        // but kind of annoying
+        ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
+        std::cout << "jump to " << 
+        s.dict_put(-1);
+
+
+        // Create a new dictionary entry
+        DictEntry *d = 0;
+        FT_CHECK(s.create(s.scratch, d));
+
+        d->flags = DictEntry::FLAG_COMPILE_ONLY;
+
+        // Emit code to push local when this is called
+        s.dict_put((size_t) OP_LOCAL_PUSH);
+        s.dict_put((size_t) *s.shared[S_LOCAL_COUNT]);
+        s.dict_put((size_t) OP_EXIT);
+
+        // Increment local count
+        s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
+
+        // Overwrite address with current address
+        (*jmpaddr) = (ptrdiff_t) &s.memory[s.memory_i];
+
+        // Then just continue
         s.shared[S_WORD_AVAILABLE].bits = 0;
         return E_WANT_WORD;
-      }, DictEntry::FLAG_IMMEDIATE & DictEntry::FLAG_COMPILE_ONLY);
+      }, DictEntry::FLAG_IMMEDIATE + DictEntry::FLAG_COMPILE_ONLY);
 
       /***** MEMORY MANIPULATION */
 
@@ -461,9 +520,23 @@ struct State {
               printf("OP_JUMP @ %ld (%ld)\n", opaddr, code[ip++]);
               break;
             }
+            case OP_JUMP_IGNORED: {
+              printf("OP_JUMP_IGNORED @ %ld (%ld)\n", opaddr, code[ip++]);
+              code = (ptrdiff_t*) code[ip-1];
+              ip = 0;
+              break;
+            }
             case OP_EXIT: {
               printf("OP_EXIT @ %ld\n", opaddr);
               loop = false;
+              break;
+            }
+            case OP_LOCAL_PUSH: {
+              printf("OP_LOCAL_PUSH @ %ld (%ld)\n", opaddr, code[ip++]);
+              break;
+            }
+            case OP_LOCAL_SET: {
+              printf("OP_LOCAL_SET\n");
               break;
             }
             case OP_UNKNOWN: default: {
@@ -502,6 +575,9 @@ struct State {
 
   Cell* shared;
   size_t shared_i, shared_size;
+
+  Cell* locals;
+  size_t locals_i, locals_size;
 
   /***** STACK INTERACTION PRIMITIVES */
 
@@ -594,6 +670,8 @@ struct State {
     d->name_length = name_length;
     strncpy(d->name, name, name_length);
 
+    FT_LOG(FT_RT, "create word " << name);
+
     FT_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
     FT_ASSERT(d->name_length == name_length);
     FT_ASSERT(strcmp(d->name, name) == 0);
@@ -631,6 +709,8 @@ struct State {
       return E_OUT_OF_MEMORY;
     }
 
+    std::cout << "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i]) << std::endl;
+
     Cell* addr = (Cell*) &memory[memory_i];
     (*addr) = cell;
 
@@ -646,6 +726,7 @@ struct State {
     DictEntry* e = shared[S_LATEST].as<DictEntry>();
 
     while(e) {
+      // TODO: Skip HIDDEN
       if(strcmp(e->name, name) == 0) {
         return e;
       }
@@ -794,8 +875,25 @@ struct State {
     return E_OK;
   }
 
+  // Convenience struct to restore to last locals after exiting function
+  struct LocalsSave {
+    LocalsSave(State& state_): state(state_), locals_i(state.locals_i) {}
+    ~LocalsSave() {
+      if(state.locals_i != locals_i) {
+        state.locals_i = locals_i;
+        FT_LOG(FT_VM, "% restored locals to " << locals_i);
+      }
+    }
+
+    State& state;
+    size_t locals_i;
+  };
+
   /** Execute user defined Forth code */
   Error exec(ptrdiff_t* code) {
+    // Save locals spot to clean up afterwards
+    LocalsSave ls(*this);
+
     // TODO: Check that code addresses are valid memory.
     size_t ip = 0;
     while(true) {
@@ -837,6 +935,7 @@ struct State {
           // jump if zero, otherwise continue
           break;
         }
+        case OP_JUMP_IGNORED:
         case OP_JUMP: {
           ptrdiff_t label = code[ip++];
           FT_LOG(FT_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
@@ -844,8 +943,26 @@ struct State {
           code = (ptrdiff_t*) label;
           break;
         }
+        case OP_LOCAL_PUSH: {
+          // Push a local value onto the data stack
+          ptrdiff_t local = code[ip++];
+          ptrdiff_t actual = locals_i - local;
+          FT_LOG(FT_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
+
+          push(locals[actual]);
+          break;
+        }
+        case OP_LOCAL_SET: {
+          FT_LOG(FT_VM, "OP_LOCAL_SET");
+          Cell val;
+          FT_CHECK(pop(val));
+
+          // TODO: potential memory overflow
+          locals[locals_i++] = val;
+          break;
+        }
         case OP_UNKNOWN: default: {
-          FT_LOG(FT_VM, "E_VALID_OPCODE @ " << (size_t)&code[ip-1] << ' ' << code[ip-1]);
+          FT_LOG(FT_VM, "E_INVALID_OPCODE @ " << (size_t)&code[ip-1] << ' ' << code[ip-1]);
           return E_INVALID_OPCODE;
         }
       }
