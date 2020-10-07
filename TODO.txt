@@ -25,17 +25,28 @@ x negative numbers
 
   // i think this will work!
 
+  // how would you implement it... IN FORTH
+  // { is an immediate word
+  // it continues to want words until it encounters }, which is not a real word
+  // it creates words as it encounters them, with enough space for an instruction to move sth off the locals
+  // stack, and onto the data stack
 
+  // so primitives it needs
+  // - want word
+  // - create word
+  // - allocate and emit code (already has)
+  // - modify word 
+  // - string comparison?
 
-- better error reporting 
+- throw/catch
+- better error reporting: format messages
 - switch memory addresses to relative to forth, and only allow references to into forth
 - stack traces
-- safer C function calls
+- safer C function calls, do something to validate that C functions are real
 - loops of some kind
 - console game of life
 - gfx bindings
 - graphical game of life
 - optimization
 -- a pretty simple optimization would be to inline a lot of c words like arithmetic as opcodes
-- a less simple optimization would be to compile to machine code, but still fairly easy compared to writing one for a high level language
-
+-- a less simple optimization would be to compile to machine code, but still fairly easy compared to writing one for a high level language

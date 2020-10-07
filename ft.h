@@ -89,7 +89,10 @@ enum Error {
   E_WORD_NOT_FOUND,
   E_DIVIDE_BY_ZERO,
   /** Unknown opcode encountered in VM -- most likely something bad was written by a Forth word */
-  E_INVALID_OPCODE
+  E_INVALID_OPCODE,
+  /** Attempt to invoke a compile only word in interpreter mode */
+  E_COMPILE_ONLY,
+
 };
 
 inline const char* error_description(const Error e) {
@@ -102,6 +105,7 @@ inline const char* error_description(const Error e) {
     case E_WORD_NOT_FOUND: return "word not found";
     case E_DIVIDE_BY_ZERO: return "divide by zero";
     case E_INVALID_OPCODE: return "invalid opcode";
+    case E_COMPILE_ONLY: return "invoked compile only word from interpreter";
     default: return "unknown";
   }
 }
@@ -151,6 +155,8 @@ struct DictEntry {
     FLAG_NONE = 0,
     FLAG_IMMEDIATE = 1 << 1,
     FLAG_CWORD = 1 << 2,
+    FLAG_HIDDEN = 1 << 3,
+    FLAG_COMPILE_ONLY = 1 << 4,
   };
 
   /**
@@ -297,7 +303,7 @@ struct State {
         s.dict_put(OP_EXIT);
         s.shared[S_COMPILING] = 0;
         return E_OK;
-      }, true);
+      }, DictEntry::FLAG_IMMEDIATE + DictEntry::FLAG_COMPILE_ONLY);
       
       // Marks a word to be immediately executed, even when
       // in compiler mode
@@ -309,6 +315,15 @@ struct State {
         return E_OK;
       });
 
+      // Marks a word as compile-only
+      defw("compile-only", [](State& s) {
+        DictEntry* d = s.shared[S_LATEST].as<DictEntry>();
+        if((d-> flags & DictEntry::FLAG_COMPILE_ONLY) == 0) {
+          d->flags += DictEntry::FLAG_COMPILE_ONLY;
+        }
+        return E_OK;
+      });
+
       defw(",", [](State& s) {
         Cell c;
         FT_CHECK(s.pop(c));
@@ -316,6 +331,23 @@ struct State {
         // Write something to here and bump it 
         return E_OK;
       });
+
+      defw("{", [](State& s) {
+        // return want word until } is encountered, then stop wanting word
+        if(*s.shared[S_WORD_AVAILABLE] == 0) {
+          return E_WANT_WORD;
+        }
+
+        printf("define local %s\n", s.scratch);
+
+        if(strcmp(s.scratch, "}") == 0) {
+          // Emit code that sets up local variables
+          return E_OK;
+        }
+
+        s.shared[S_WORD_AVAILABLE].bits = 0;
+        return E_WANT_WORD;
+      }, DictEntry::FLAG_IMMEDIATE & DictEntry::FLAG_COMPILE_ONLY);
 
       /***** MEMORY MANIPULATION */
 
@@ -574,15 +606,11 @@ struct State {
   /**
    * Add a Forth word backed by a C++ function
    */
-  Error defw(const char* name, c_word_t word, bool immediate = false) {
+  Error defw(const char* name, c_word_t word, ptrdiff_t flags = 0) {
     DictEntry* d = 0;
     FT_CHECK(create(name, d));
 
-    d->flags = DictEntry::FLAG_CWORD;
-
-    if(immediate) {
-      d->flags += DictEntry::FLAG_IMMEDIATE;
-    }
+    d->flags = DictEntry::FLAG_CWORD + flags;
 
     dict_put((size_t)word);
 
@@ -715,6 +743,10 @@ struct State {
         DictEntry* word = lookup(scratch);
 
         if(word) {
+          if(*shared[S_COMPILING] == 0 && (word->flags & DictEntry::FLAG_COMPILE_ONLY)) {
+            return E_COMPILE_ONLY;
+          }
+
           // If in compilation and this is not an immediate word
           if(*shared[S_COMPILING] && (word->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
             if(word->flags & DictEntry::FLAG_CWORD) {
@@ -732,7 +764,7 @@ struct State {
               c_word_t cw = *word->data<c_word_t>();
 
               Error e = cw(*this);
-              if(e == E_WANT_WORD) {
+              while(e == E_WANT_WORD) {
                 // Attempt to read additional word name to pass through
                 Token tk2;
                 FT_CHECK(next_token(tk2));
@@ -742,8 +774,9 @@ struct State {
 
                 shared[S_WORD_AVAILABLE] = 1;
 
-                FT_CHECK(cw(*this));
-              } else if(e != E_OK) {
+                e = cw(*this);
+              }
+              if(e != E_OK) {
                 return e;
               }
             } else {

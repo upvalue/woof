@@ -5,7 +5,7 @@
   here
   \ emit 555 as placeholder for address
   555 , 
-; immediate
+; immediate compile-only
 
 
 : else 
@@ -19,12 +19,12 @@
   swap
   \ overwrite previous jump address with here
   here swap !
-; immediate
+; immediate compile-only
   
 \ TODO else
 
 : then 
   \ overwrite jump address with address of this code
   here swap !
-; immediate
+; immediate compile-only
 
