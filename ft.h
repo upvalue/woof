@@ -17,8 +17,8 @@
 #define FT_CC (1 << 4)
 
 // Logs for debugging only.
-#define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
-// #define FT_LOG_TAGS 0
+// #define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
+#define FT_LOG_TAGS 0
 
 #if FT_LOG_TAGS
 # define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
@@ -84,6 +84,7 @@ enum Error {
   E_OK,
   E_STACK_UNDERFLOW,
   E_STACK_OVERFLOW,
+  E_OUT_OF_RANGE,
   E_OUT_OF_MEMORY,
   /** Encountered something that was too large for scratch space, such as a very long word name */
   E_OUT_OF_SCRATCH,
@@ -117,11 +118,46 @@ inline const char* error_description(const Error e) {
   }
 }
 
+struct Stack {
+  Stack(): data(0), i(0), size(0) {}
+  ptrdiff_t* data;
+  size_t i;
+  size_t size;
+
+  void zero() { memset(data, 0, size * sizeof(ptrdiff_t)); }
+
+  template <class T>
+  Error get(ptrdiff_t idx, T& out) {
+    if(idx >= i) {
+      return E_OUT_OF_RANGE;
+    }
+
+    out = (T) data[idx];
+
+    return E_OK;
+  }
+
+
+  Error push(ptrdiff_t w) {
+    if(i > size) {
+      // TODO return which stack this happened on
+      return E_OUT_OF_MEMORY;
+    }
+
+    data[i++] = w;
+
+    return E_OK;
+  }
+};
+
 /**
  * StateConfig -- a struct used to initialize State and point it at 
  * whatever memory you've allocated for it.
  */
 struct StateConfig {
+  StateConfig() {}
+  ~StateConfig() {}
+
   Cell* stack;
   size_t stack_size;
 
@@ -131,15 +167,15 @@ struct StateConfig {
   Cell* shared;
   size_t shared_size;
 
-  Cell* locals;
-  size_t locals_size;
+  Stack locals;
+  Stack cwords;
 };
 
 
 /** 
  * A convenience method for struct StateConfig with statically allocated memory
  */
-template <size_t stack_size_num = 1024, size_t shared_size_num = 8, size_t locals_size_num = 256, size_t memory_size_num = 1024 * 1024>
+template <size_t stack_size_num = 1024, size_t shared_size_num = 8, size_t locals_size_num = 256, size_t cwords_size_num = 128, size_t memory_size_num = 1024 * 1024>
 struct StaticStateConfig : StateConfig {
   StaticStateConfig() {
     stack = (Cell*) stack_store;
@@ -148,8 +184,11 @@ struct StaticStateConfig : StateConfig {
     memory = (char*) memory_store;
     memory_size = memory_size_num;
 
-    locals = (Cell*) locals_store;
-    locals_size = locals_size_num;
+    locals.data = locals_store;
+    locals.size = locals_size_num;
+
+    cwords.data = cwords_store;
+    cwords.size = cwords_size_num;
 
     shared = (Cell*) shared_store;
     shared_size = shared_size_num;
@@ -157,7 +196,8 @@ struct StaticStateConfig : StateConfig {
 
   Cell* stack_store[stack_size_num];
   char* memory_store[memory_size_num];
-  Cell* locals_store[locals_size_num];
+  ptrdiff_t locals_store[locals_size_num];
+  ptrdiff_t cwords_store[cwords_size_num];
   Cell* shared_store[shared_size_num];
 };
 
@@ -265,27 +305,36 @@ struct State {
     memory_i(0),
     memory_size(cfg.memory_size),
     shared(cfg.shared),
-    shared_i(0),
     shared_size(cfg.shared_size),
     locals(cfg.locals),
-    locals_i(0),
-    locals_size(cfg.locals_size),
+    cwords(cfg.cwords),
     scratch_i(0) {
+      // Zero out memory
       memset(stack, 0, stack_size * sizeof(Cell));
       memset(memory, 0, memory_size);
       memset(scratch, 0, FT_SCRATCH_SIZE);
       memset(shared, 0, shared_size * sizeof(Cell));
-      memset(locals, 0, locals_size * sizeof(Cell));
+      cwords.zero();
+      locals.zero();
 
       /***** BUILTIN WORDS */
 
       /***** ARITHMETIC / COMPARISON */
+
+      cwords.push(0);
 
       defw("+", [](State& s) {
         Cell a, b;
         FT_CHECK(s.pop(a));
         FT_CHECK(s.pop(b));
         return s.push(b.bits + a.bits);
+      });
+
+      defw("*", [](State& s) {
+        Cell a, b;
+        FT_CHECK(s.pop(a));
+        FT_CHECK(s.pop(b));
+        return s.push(a.bits * b.bits);
       });
 
       defw("-", [](State& s) {
@@ -326,7 +375,7 @@ struct State {
       });
 
       defw(";", [](State& s) {
-        s.dict_put(OP_EXIT);
+        FT_CHECK(s.dict_put(OP_EXIT));
         s.shared[S_COMPILING] = 0;
         return E_OK;
       }, DictEntry::FLAG_IMMEDIATE + DictEntry::FLAG_COMPILE_ONLY);
@@ -353,7 +402,7 @@ struct State {
       defw(",", [](State& s) {
         Cell c;
         FT_CHECK(s.pop(c));
-        s.dict_put(c);
+        FT_CHECK(s.dict_put(c));
         // Write something to here and bump it 
         return E_OK;
       });
@@ -368,7 +417,7 @@ struct State {
         // Emit code to set locals and mark local definitions as hidden
         if(strcmp(s.scratch, "}") == 0) {
           for(size_t i = 0; i != *s.shared[S_LOCAL_COUNT]; i++) {
-            s.dict_put(OP_LOCAL_SET);
+            FT_CHECK(s.dict_put(OP_LOCAL_SET));
           }
 
           // Reset shared counters
@@ -390,7 +439,6 @@ struct State {
         ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
         FT_CHECK(s.dict_put(-1));
 
-
         // Create a new dictionary entry
         DictEntry *d = 0;
         FT_CHECK(s.create(s.scratch, d));
@@ -404,7 +452,7 @@ struct State {
         FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
         FT_CHECK(s.dict_put(*s.shared[S_LOCAL_COUNT]));
         FT_CHECK(s.dict_put_cword(","));
-        FT_CHECK(s.dict_put((size_t) OP_EXIT));
+        FT_CHECK(s.dict_put(OP_EXIT));
 
         // Increment local count
         s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
@@ -556,10 +604,6 @@ struct State {
         }
         return E_OK;
       });
-
-      // TODO: comma
-      // TODO: if/else
-      // TODO: throw
     }
   ~State() {}
 
@@ -582,10 +626,16 @@ struct State {
   size_t scratch_i;
 
   Cell* shared;
-  size_t shared_i, shared_size;
+  size_t shared_size;
 
-  Cell* locals;
-  size_t locals_i, locals_size;
+  /** Locals stack -- stores local variables during function execution */
+  Stack locals;
+  
+  /** 
+   * cwords stack -- stores C++ function addresses. Referencing them indirectly allows us to check
+   * that we're jumping to a valid function before calling
+   */
+  Stack cwords;
 
   /***** STACK INTERACTION PRIMITIVES */
 
@@ -627,6 +677,19 @@ struct State {
     }
     c = stack[si-i-1];
     return E_OK;
+  }
+
+  /***** MEMORY INTERACTION */
+
+  /** Given a cword virtual address, find the actual function address */
+  Error cword_get(ptrdiff_t vaddr, c_word_t& cw) {
+    // cword virtual addresses should always be odd this allows us to distinguish them from forth
+    // word addresses
+    if((vaddr % 2) == 0) {
+      return E_INVALID_OPCODE;
+    }
+    ptrdiff_t actual_idx = (vaddr + 1) / 2;
+    return cwords.get(actual_idx, cw);
   }
 
   /***** SCRATCH INTERACTION */
@@ -692,20 +755,24 @@ struct State {
   /**
    * Add a Forth word backed by a C++ function
    */
-  Error defw(const char* name, c_word_t word, ptrdiff_t flags = 0) {
+  Error defw(const char* name, c_word_t fnaddr, ptrdiff_t flags = 0) {
     DictEntry* d = 0;
     FT_CHECK(create(name, d));
 
     d->flags = DictEntry::FLAG_CWORD + flags;
 
-    dict_put((size_t)word);
+    // Save the index of the cword in the cwords array
+    size_t cword_idx = cwords.i == 0 ? 0 : (cwords.i * 2) - 1;
+    FT_CHECK(cwords.push((size_t) fnaddr));
+
+    FT_CHECK(dict_put(cword_idx));
 
     // TODO: It's possible for Forth code to overwrite this and cause us to call an invalid value
     // which would make ft.h crash. One possibility would be registering all C functions in an array
     // and only calling known indexes in that array. That way, even corrupted forth code could not
     // segfault, only call nonsensical C functions
 
-    FT_ASSERT(*d->data<size_t>() == (size_t) word);
+    FT_ASSERT(*d->data<size_t>() == cword_idx);
     FT_ASSERT(d->flags & DictEntry::FLAG_CWORD);
 
     return E_OK;
@@ -861,17 +928,18 @@ struct State {
           if(*shared[S_COMPILING] && (word->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
             if(word->flags & DictEntry::FLAG_CWORD) {
               // Push c call followed by function pointer
-              dict_put(OP_CALL_C);
-              dict_put(*word->data<ptrdiff_t>());
+              FT_CHECK(dict_put(OP_CALL_C));
+              FT_CHECK(dict_put(*word->data<ptrdiff_t>()));
             } else {
               // Push forth call followed by pointer to forth VM code
-              dict_put(OP_CALL_FORTH);
-              dict_put((ptrdiff_t) word->data<ptrdiff_t>());
+              FT_CHECK(dict_put(OP_CALL_FORTH));
+              FT_CHECK(dict_put((ptrdiff_t) word->data<ptrdiff_t>()));
             }
           } else {
             // Either interpreting or this is an immediate word
             if(word->flags & DictEntry::FLAG_CWORD) {
-              c_word_t cw = *word->data<c_word_t>();
+              c_word_t cw;
+              FT_CHECK(cword_get(*word->data<ptrdiff_t>(), cw));
 
               Error e = cw(*this);
               while(e == E_WANT_WORD) {
@@ -908,10 +976,10 @@ struct State {
 
   // Convenience struct to restore to last locals after exiting function
   struct LocalsSave {
-    LocalsSave(State& state_): state(state_), locals_i(state.locals_i) {}
+    LocalsSave(State& state_): state(state_), locals_i(state.locals.i) {}
     ~LocalsSave() {
-      if(state.locals_i != locals_i) {
-        state.locals_i = locals_i;
+      if(state.locals.i != locals_i) {
+        state.locals.i = locals_i;
         FT_LOG(FT_VM, "% restored locals to " << locals_i);
       }
     }
@@ -942,7 +1010,8 @@ struct State {
           continue;
         }
         case OP_CALL_C: {
-          c_word_t cw = (c_word_t) code[ip++];
+          c_word_t cw;
+          FT_CHECK(cword_get(code[ip++], cw));
           FT_LOG(FT_VM, "OP_CALL_C @ " << (size_t)&code[ip-2] << ' ' << (size_t) cw);
           FT_CHECK(cw(*this));
           continue;
@@ -977,10 +1046,10 @@ struct State {
         case OP_LOCAL_PUSH: {
           // Push a local value onto the data stack
           ptrdiff_t local = code[ip++];
-          ptrdiff_t actual = locals_i - local - 1;
+          ptrdiff_t actual = locals.i - local - 1;
           FT_LOG(FT_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
 
-          push(locals[actual]);
+          push(locals.data[actual]);
           break;
         }
         case OP_LOCAL_SET: {
@@ -989,7 +1058,8 @@ struct State {
           FT_CHECK(pop(val));
 
           // TODO: potential memory overflow
-          locals[locals_i++] = val;
+          FT_CHECK(locals.push(val.bits));
+          locals.data[locals.i++] = val.bits;
           break;
         }
         case OP_UNKNOWN: default: {
