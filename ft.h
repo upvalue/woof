@@ -13,9 +13,11 @@
 #define FT_EVAL (1 << 2)
 // Trace various runtime things
 #define FT_RT (1 << 3)
+// Trace compilation emission
+#define FT_CC (1 << 4)
 
 // Logs for debugging only.
-#define FT_LOG_TAGS (FT_VM + FT_RT)
+#define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
 // #define FT_LOG_TAGS 0
 
 #if FT_LOG_TAGS
@@ -94,6 +96,8 @@ enum Error {
   E_INVALID_OPCODE,
   /** Attempt to invoke a compile only word in interpreter mode */
   E_COMPILE_ONLY,
+  E_EXPECTED_FORTH_WORD,
+  E_EXPECTED_C_WORD,
 };
 
 inline const char* error_description(const Error e) {
@@ -107,6 +111,8 @@ inline const char* error_description(const Error e) {
     case E_DIVIDE_BY_ZERO: return "divide by zero";
     case E_INVALID_OPCODE: return "invalid opcode";
     case E_COMPILE_ONLY: return "invoked compile only word from interpreter";
+    case E_EXPECTED_FORTH_WORD: return "expected forth word";
+    case E_EXPECTED_C_WORD: return "expected c word";
     default: return "unknown";
   }
 }
@@ -376,26 +382,29 @@ struct State {
 
         // We're about to define a local word, so emit a jump past the dictionary entry to the rest
         // of this word's code
-        s.dict_put(OP_JUMP_IGNORED);
+        FT_CHECK(s.dict_put(OP_JUMP_IGNORED));
 
         // Emit a nonsense address here to overwrite in one second
         // It would actually be possible to calculate this in advance
         // but kind of annoying
         ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
-        std::cout << "jump to " << 
-        s.dict_put(-1);
+        FT_CHECK(s.dict_put(-1));
 
 
         // Create a new dictionary entry
         DictEntry *d = 0;
         FT_CHECK(s.create(s.scratch, d));
 
-        d->flags = DictEntry::FLAG_COMPILE_ONLY;
+        d->flags = DictEntry::FLAG_COMPILE_ONLY + DictEntry::FLAG_IMMEDIATE;
 
-        // Emit code to push local when this is called
-        s.dict_put((size_t) OP_LOCAL_PUSH);
-        s.dict_put((size_t) *s.shared[S_LOCAL_COUNT]);
-        s.dict_put((size_t) OP_EXIT);
+        // Emit code to emit code to push local when this is called (SUCH WOW VERY META)
+        FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
+        FT_CHECK(s.dict_put(OP_LOCAL_PUSH));
+        FT_CHECK(s.dict_put_cword(","));
+        FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
+        FT_CHECK(s.dict_put(*s.shared[S_LOCAL_COUNT]));
+        FT_CHECK(s.dict_put_cword(","));
+        FT_CHECK(s.dict_put((size_t) OP_EXIT));
 
         // Increment local count
         s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
@@ -478,8 +487,7 @@ struct State {
         if(!d) return E_WORD_NOT_FOUND;
 
         if((d->flags & DictEntry::FLAG_CWORD) != 0) {
-          // TODO fix this to be an actual error message
-          return E_DIVIDE_BY_ZERO;
+          return E_EXPECTED_FORTH_WORD;
         }
 
         return s.push((ptrdiff_t)d->data<ptrdiff_t>());
@@ -703,13 +711,19 @@ struct State {
     return E_OK;
   }
 
-  /** Push a cell into memory, comma in Forth */
-  Error dict_put(Cell cell) {
-    if(memory_i + sizeof(Cell) > memory_size) {
+  Error require_cells(size_t cells) {
+    if((memory_i + (sizeof(Cell) * cells)) > memory_size) {
       return E_OUT_OF_MEMORY;
     }
+    return E_OK;
+  }
 
-    std::cout << "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i]) << std::endl;
+  /** Push a cell into memory, comma in Forth */
+  Error dict_put(Cell cell) {
+    FT_CHECK(require_cells(1));
+
+    FT_LOG(FT_CC, "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i]));
+
 
     Cell* addr = (Cell*) &memory[memory_i];
     (*addr) = cell;
@@ -717,6 +731,21 @@ struct State {
     memory_i += sizeof(Cell);
 
     return E_OK;
+  }
+
+  /** Push a c word invocation into memory */
+  Error dict_put_cword(const char* word) {
+    DictEntry* d = lookup(word);
+
+    if(!d) return E_WORD_NOT_FOUND;
+
+    if((d->flags & DictEntry::FLAG_CWORD) == 0) {
+      // TODO FIX THIS
+      return E_EXPECTED_C_WORD;
+    }
+    
+    FT_CHECK(dict_put(OP_CALL_C));
+    return dict_put(*d->data<ptrdiff_t>());
   }
 
   /**
@@ -875,6 +904,8 @@ struct State {
     return E_OK;
   }
 
+  /***** VIRTUAL MACHINE */
+
   // Convenience struct to restore to last locals after exiting function
   struct LocalsSave {
     LocalsSave(State& state_): state(state_), locals_i(state.locals_i) {}
@@ -946,7 +977,7 @@ struct State {
         case OP_LOCAL_PUSH: {
           // Push a local value onto the data stack
           ptrdiff_t local = code[ip++];
-          ptrdiff_t actual = locals_i - local;
+          ptrdiff_t actual = locals_i - local - 1;
           FT_LOG(FT_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
 
           push(locals[actual]);
