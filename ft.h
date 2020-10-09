@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <string.h>
 
+// Logs for debugging, if needed
+
 // Trace all virtual machine access
 #define FT_VM (1 << 1)
 // Trace all evaluation code
@@ -16,7 +18,6 @@
 // Trace compilation emission
 #define FT_CC (1 << 4)
 
-// Logs for debugging only.
 // #define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
 #define FT_LOG_TAGS 0
 
@@ -27,7 +28,6 @@
 #endif 
 
 #define FT_ASSERT(x) assert(x)
-
 
 /**
  * Check for an error and return if there was one
@@ -53,6 +53,25 @@ namespace ft {
 inline size_t align(int boundary, size_t value) {
   return (size_t)((value + (boundary - 1)) & -boundary);
 }
+
+struct State;
+
+/**
+ * VAddr is an address relative to the memory of a State instance.
+ * It ensures we don't segfault by dereferencing an invalid pointer
+ */
+struct VAddr {
+  VAddr(State& state_, ptrdiff_t addr_ = 0): state(state_), addr(addr_) {}
+  ~VAddr() {}
+
+  State& state;
+  ptrdiff_t addr;
+
+  /** Return a real pointer */
+  ptrdiff_t* realptr() const {
+    return (ptrdiff_t*) 0;
+  }
+};
 
 /**
  * A word (as in system word) sized integer.
@@ -118,6 +137,7 @@ inline const char* error_description(const Error e) {
   }
 }
 
+/** A generic stack memory structure, since we have several */
 struct Stack {
   Stack(): data(0), i(0), size(0) {}
   ptrdiff_t* data;
@@ -259,16 +279,9 @@ enum {
   S_USER_SHARED,
 };
 
-enum {
-  INPUT_INTERPRET,
-  INPUT_PASS_WORD,
-};
+enum { INPUT_INTERPRET, INPUT_PASS_WORD };
 
-enum Token {
-  TK_NUMBER,
-  TK_WORD,
-  TK_END,
-};
+enum Token { TK_NUMBER, TK_WORD, TK_END, };
 
 enum Opcode {
   /** Null -- should not be encountered */
@@ -420,6 +433,8 @@ struct State {
             FT_CHECK(s.dict_put(OP_LOCAL_SET));
           }
 
+          // TODO: Mark locals as hidden
+
           // Reset shared counters
           s.shared[S_LOCAL_COUNT].bits = 0;
           s.shared[S_WORD_AVAILABLE].bits = 0;
@@ -436,6 +451,8 @@ struct State {
         // Emit a nonsense address here to overwrite in one second
         // It would actually be possible to calculate this in advance
         // but kind of annoying
+
+        // TODO(vaddr): Taking an address directly
         ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
         FT_CHECK(s.dict_put(-1));
 
@@ -458,6 +475,7 @@ struct State {
         s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
 
         // Overwrite address with current address
+        // TODO(vaddr): Taking an address directly
         (*jmpaddr) = (ptrdiff_t) &s.memory[s.memory_i];
 
         // Then just continue
@@ -473,6 +491,7 @@ struct State {
         FT_CHECK(s.pop(addrcell));
         FT_CHECK(s.pop(data));
 
+        // TODO(vaddr): writing directly to memory address
         ptrdiff_t *addr = addrcell.as<ptrdiff_t>();
 
         (*addr) = data.bits;
@@ -487,6 +506,7 @@ struct State {
       });
 
       defw("here", [](State& s) {
+        // TODO(vaddr): giving memory address directly to forth
         s.push((size_t)&s.memory[s.memory_i]);
         return E_OK;
       });
@@ -500,6 +520,7 @@ struct State {
         Cell addrcell;
         FT_CHECK(s.pop(addrcell));
 
+        // TODO(vaddr): dereferencing an address directly
         ptrdiff_t addr = *addrcell.as<ptrdiff_t>();
 
         return s.push(addr);
@@ -538,6 +559,8 @@ struct State {
           return E_EXPECTED_FORTH_WORD;
         }
 
+        // TODO(vaddr): Giving Forth an address directly.
+        // We can also give out cword vaddrs here.
         return s.push((ptrdiff_t)d->data<ptrdiff_t>());
 
         return E_OK;
@@ -548,7 +571,9 @@ struct State {
       // from addr to OP_EXIT
       defw("decompile", [](State& s) {
         Cell addrcell;
+        // TODO: Check validity of address
         FT_CHECK(s.pop(addrcell));
+        // TODO(vaddr): Reading Forth memory directly
         ptrdiff_t* code = addrcell.as<ptrdiff_t>();
         size_t ip = 0;
         bool loop = true;
@@ -702,6 +727,21 @@ struct State {
     return E_OK;
   }
 
+  /**
+   * Return (or propagate) an error message,
+   * by appending a newline and writing to scratch spae
+   */
+  Error errorf_append(Error e, const char* fmt, ...) {
+    if(scratch_i < FT_SCRATCH_SIZE - 1) {
+      va_list va;
+      va_start(va, fmt);
+      scratch[scratch_i++] = '\n';
+      vsnprintf(&scratch[scratch_i], FT_SCRATCH_SIZE - scratch_i, fmt, va);
+      va_end(va);
+    }
+    return e;
+  }
+
   Error errorf(Error e, const char* fmt, ...) {
     va_list va;
     va_start(va, fmt);
@@ -720,6 +760,7 @@ struct State {
       return E_OUT_OF_MEMORY;
     }
 
+    // TODO(vaddr) giving a forth memory address directly
     addr = &memory[memory_i];
 
     memory_i += req;
@@ -787,15 +828,12 @@ struct State {
 
   /** Push a cell into memory, comma in Forth */
   Error dict_put(Cell cell) {
-    FT_CHECK(require_cells(1));
+    char* addr;
+    FT_CHECK(allot(sizeof(ptrdiff_t), addr));
 
     FT_LOG(FT_CC, "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i]));
 
-
-    Cell* addr = (Cell*) &memory[memory_i];
-    (*addr) = cell;
-
-    memory_i += sizeof(Cell);
+    (*((ptrdiff_t*)addr)) = cell.bits;
 
     return E_OK;
   }
@@ -990,6 +1028,15 @@ struct State {
 
   /** Execute user defined Forth code */
   Error exec(ptrdiff_t* code) {
+#if FT_COMPUTED_GOTO
+# define FT_VM_CASE(label) LABEL_##label
+# define FT_VM_DISPATCH() goto *dispatch_table[*cp++];
+# define FT_VM_SWITCH()
+#else 
+# define FT_VM_CASE(label) case label
+# define FT_VM_DISPATCH() break;
+# define FT_VM_SWITCH() switch(*cp++)
+#endif
     // Save locals spot to clean up afterwards
     LocalsSave ls(*this);
 

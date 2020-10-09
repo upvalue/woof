@@ -1,25 +1,44 @@
-- write basic prelude
-- variables
-x local variables
-- throw/catch
-- embedded programming
--- ROM support -- can we support storing and reading forth code from ROM for maximum memory usage?
 - safety
 -- better error reporting: format messages
 -- switch memory addresses to relative to forth, and only allow references to into forth
--- safer C function calls, do something to validate that C functions are real
+- write basic prelude
+- variables
+? local variables
+  probably bugs, corner cases, write tests.
+  one bug: you cant have two local variables, it doesn't work
+- throw/catch
+  basic design  
+  throw is easy enough -- just put an error message into scratch,
+  and throw an error code
+  // 
+  catch is harder, do we need something like anonymous quotations?
+  [ 1 2 3 ]
+  [ recover ]
+  8 catch
+  seems easy enough
+- also... anonymous quotations!
+- tail call optimization
+  just check for an OP_EXIT after an OP_CALL_FORTH in VM
+  no need to do it in compiler
+xx safer C function calls, do something to validate that C functions are real
+   interestingly this adds quite a perf penalty!
 -- as a basic safety rubric, lets do enough to make it never segfault but nothing beyond that (type safety etc)
 - DX
 -- stack traces
-- code cleanliness
--- audit use of cell, it's kind of weird
--- sometimes i use it to retrieve pointers, other times to set pointers
--- maybe it should track actual offset in memory? rather than being raw bits
+- floating point numbers
 - loops of some kind
-- console game of life
+- console (non interactive) game of life
 - gfx bindings
 - graphical game of life
 - optimization
 -- a pretty simple optimization would be to inline a lot of c words like arithmetic as opcodes
 -- a less simple optimization would be to compile to machine code, but still fairly easy compared to writing one for a high level language
--- dispatch tables for the VM
+-- simple and wouldn't grow code a lot: dispatch tables for the VM
+- embedded programming
+-- ROM support -- can we support storing and reading forth code from ROM for maximum memory usage?
+- code cleanliness
+-- audit use of cell, it's kind of weird
+   sometimes i use it to retrieve pointers, other times to set pointers
+   maybe it should track actual offset in memory? rather than being raw bits
+
+- basic strings

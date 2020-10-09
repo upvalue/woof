@@ -3,6 +3,8 @@
 
 #include "ft.h"
 
+#include "raylib.h"
+
 using namespace ft;
 
 struct TestState {
@@ -61,5 +63,11 @@ TEST_CASE("ft.h") {
     CHECK(s.exec("5 , 999 here WORD - ! here WORD - @") == E_OK);
     CHECK(s.si == 2);
     CHECK(s.stack[1].bits == 999);
+  }
+
+  SUBCASE("can use locals") {
+    CHECK(s.exec(": add { a b } a b + ; 5 10 add"));
+    CHECK(s.si == 1);
+    CHECK(s.stack[0].bits == 15);
   }
 }
