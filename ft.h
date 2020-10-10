@@ -9,6 +9,8 @@
 
 // Logs for debugging, if needed
 
+#define FT_COMPUTED_GOTO 1
+
 // Trace all virtual machine access
 #define FT_VM (1 << 1)
 // Trace all evaluation code
@@ -65,7 +67,6 @@ struct State;
 struct Cell {
   Cell(): bits(0) {}
   Cell(ptrdiff_t bits_): bits(bits_) {}
-  ~Cell() {}
 
   ptrdiff_t bits;
 
@@ -285,6 +286,8 @@ enum Opcode {
   /** Jump to the next address */
   OP_JUMP = 5,
   /** Jump to the next address, and ignore for the purposes of decompiling */
+  // TODO: It would be nicer to have this as a second operand
+  // for jump
   OP_JUMP_IGNORED = 6,
   /** Push a local value onto the data stack */
   OP_LOCAL_PUSH = 7,
@@ -568,6 +571,7 @@ struct State {
         while(loop) {
           ptrdiff_t opaddr = (ptrdiff_t) &code[ip];
           ptrdiff_t op = code[ip++];
+
           switch(op) {
             case OP_PUSH_IMMEDIATE: {
               printf("OP_PUSH_IMMEDIATE @ %ld (%ld)\n", opaddr, code[ip++]);
@@ -1036,46 +1040,59 @@ struct State {
   Error exec(ptrdiff_t* code_relative) {
 #if FT_COMPUTED_GOTO
 # define FT_VM_CASE(label) LABEL_##label
-# define FT_VM_DISPATCH() goto *dispatch_table[*cp++];
+# define FT_VM_DISPATCH() goto *dispatch_table[code[ip++]];
 # define FT_VM_SWITCH()
+    static void* dispatch_table[] = {
+      &&LABEL_OP_UNKNOWN,
+      &&LABEL_OP_PUSH_IMMEDIATE,
+      &&LABEL_OP_CALL_FORTH,
+      &&LABEL_OP_CALL_C,
+      &&LABEL_OP_JUMP_IF_ZERO,
+      &&LABEL_OP_JUMP,
+      &&LABEL_OP_JUMP_IGNORED,
+      &&LABEL_OP_LOCAL_PUSH,
+      &&LABEL_OP_LOCAL_SET,
+      &&LABEL_OP_EXIT,
+    };
 #else 
 # define FT_VM_CASE(label) case label
 # define FT_VM_DISPATCH() break;
-# define FT_VM_SWITCH() switch(*cp++)
+# define FT_VM_SWITCH() switch(code[ip++])
 #endif
     FT_CHECKF(raddr_valid(code_relative), "exec got invalid address %ld", code_relative);
     ptrdiff_t* code = raddr_to_real(code_relative);
     // Save locals spot to clean up afterwards
     LocalsSave ls(*this);
-
     // TODO: Check that code addresses are valid memory.
     size_t ip = 0;
+
     while(true) {
-      switch(code[ip++]) {
-        case OP_PUSH_IMMEDIATE: {
+      FT_VM_DISPATCH();
+      FT_VM_SWITCH() {
+        FT_VM_CASE(OP_PUSH_IMMEDIATE): {
           ptrdiff_t n = code[ip++];
           FT_LOG(FT_VM, "OP_PUSH_IMMEDIATE @ " << (size_t)&code[ip-2] << ' ' << n);
           push(n);
-          continue;
+          FT_VM_DISPATCH();
         }
-        case OP_CALL_FORTH: {
+        FT_VM_CASE(OP_CALL_FORTH): {
           ptrdiff_t* next =  raddr_to_real((ptrdiff_t*) code[ip++]);
           FT_LOG(FT_VM, "OP_CALL_FORTH @ " << (size_t)&code[ip-2] << ' ' << (ptrdiff_t)next << " (relative) " << code[ip-1]);
           FT_CHECK(exec((ptrdiff_t*) code[ip-1]));
-          continue;
+          FT_VM_DISPATCH();
         }
-        case OP_CALL_C: {
+        FT_VM_CASE(OP_CALL_C): {
           c_word_t cw;
           FT_CHECK(cword_get(code[ip++], cw));
           FT_LOG(FT_VM, "OP_CALL_C @ " << (size_t)&code[ip-2] << ' ' << (size_t) cw);
           FT_CHECK(cw(*this));
-          continue;
+          FT_VM_DISPATCH();
         }
-        case OP_EXIT: {
+        FT_VM_CASE(OP_EXIT): {
           FT_LOG(FT_VM, "OP_EXIT @ " << (size_t)&code[ip-1]);
           return E_OK;
         }
-        case OP_JUMP_IF_ZERO: {
+        FT_VM_CASE(OP_JUMP_IF_ZERO): {
           // Check stack
           if(si == 0) {
             return E_STACK_UNDERFLOW;
@@ -1087,27 +1104,26 @@ struct State {
             code = (ptrdiff_t*) label;
             ip = 0;
           }
-          // jump if zero, otherwise continue
-          break;
+          FT_VM_DISPATCH();
         }
-        case OP_JUMP_IGNORED:
-        case OP_JUMP: {
+        FT_VM_CASE(OP_JUMP_IGNORED):
+        FT_VM_CASE(OP_JUMP): {
           ptrdiff_t label = code[ip++];
           FT_LOG(FT_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
           ip = 0;
           code = (ptrdiff_t*) label;
-          break;
+          FT_VM_DISPATCH();
         }
-        case OP_LOCAL_PUSH: {
+        FT_VM_CASE(OP_LOCAL_PUSH): {
           // Push a local value onto the data stack
           ptrdiff_t local = code[ip++];
           ptrdiff_t actual = locals.i - local - 1;
           FT_LOG(FT_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
 
           push(locals.data[actual]);
-          break;
+          FT_VM_DISPATCH();
         }
-        case OP_LOCAL_SET: {
+        FT_VM_CASE(OP_LOCAL_SET): {
           FT_LOG(FT_VM, "OP_LOCAL_SET");
           Cell val;
           FT_CHECK(pop(val));
@@ -1115,9 +1131,9 @@ struct State {
           // TODO: potential memory overflow
           FT_CHECK(locals.push(val.bits));
           locals.data[locals.i++] = val.bits;
-          break;
+          FT_VM_DISPATCH();
         }
-        case OP_UNKNOWN: default: {
+        FT_VM_CASE(OP_UNKNOWN): {
           FT_LOG(FT_VM, "E_INVALID_OPCODE @ " << (size_t)&code[ip-1] << ' ' << code[ip-1]);
           return E_INVALID_OPCODE;
         }
