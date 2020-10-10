@@ -19,6 +19,7 @@
 #define FT_CC (1 << 4)
 
 // #define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
+// #define FT_LOG_TAGS (FT_CC + FT_VM)
 #define FT_LOG_TAGS 0
 
 #if FT_LOG_TAGS
@@ -33,6 +34,8 @@
  * Check for an error and return if there was one
  */
 #define FT_CHECK(e) do { ft::Error err = e; if(err != E_OK) { return err; }} while(0)
+
+#define FT_CHECKF(e, ...) do { ft::Error err = e; if(err != E_OK) { return errorf(err, __VA_ARGS__); }} while(0)
 
 /**
  * Size of scratch buffer to use for things like formatting strings and reading input
@@ -55,23 +58,6 @@ inline size_t align(int boundary, size_t value) {
 }
 
 struct State;
-
-/**
- * VAddr is an address relative to the memory of a State instance.
- * It ensures we don't segfault by dereferencing an invalid pointer
- */
-struct VAddr {
-  VAddr(State& state_, ptrdiff_t addr_ = 0): state(state_), addr(addr_) {}
-  ~VAddr() {}
-
-  State& state;
-  ptrdiff_t addr;
-
-  /** Return a real pointer */
-  ptrdiff_t* realptr() const {
-    return (ptrdiff_t*) 0;
-  }
-};
 
 /**
  * A word (as in system word) sized integer.
@@ -114,6 +100,7 @@ enum Error {
   E_DIVIDE_BY_ZERO,
   /** Unknown opcode encountered in VM -- most likely something bad was written by a Forth word */
   E_INVALID_OPCODE,
+  E_INVALID_ADDRESS,
   /** Attempt to invoke a compile only word in interpreter mode */
   E_COMPILE_ONLY,
   E_EXPECTED_FORTH_WORD,
@@ -130,6 +117,7 @@ inline const char* error_description(const Error e) {
     case E_WORD_NOT_FOUND: return "word not found";
     case E_DIVIDE_BY_ZERO: return "divide by zero";
     case E_INVALID_OPCODE: return "invalid opcode";
+    case E_INVALID_ADDRESS: return "invalid address";
     case E_COMPILE_ONLY: return "invoked compile only word from interpreter";
     case E_EXPECTED_FORTH_WORD: return "expected forth word";
     case E_EXPECTED_C_WORD: return "expected c word";
@@ -452,7 +440,7 @@ struct State {
         // It would actually be possible to calculate this in advance
         // but kind of annoying
 
-        // TODO(vaddr): Taking an address directly
+        // TODO(raddr): Taking an address directly
         ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
         FT_CHECK(s.dict_put(-1));
 
@@ -475,7 +463,7 @@ struct State {
         s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
 
         // Overwrite address with current address
-        // TODO(vaddr): Taking an address directly
+        // TODO(raddr): Taking an address directly
         (*jmpaddr) = (ptrdiff_t) &s.memory[s.memory_i];
 
         // Then just continue
@@ -491,7 +479,7 @@ struct State {
         FT_CHECK(s.pop(addrcell));
         FT_CHECK(s.pop(data));
 
-        // TODO(vaddr): writing directly to memory address
+        // TODO(raddr): writing directly to memory address
         ptrdiff_t *addr = addrcell.as<ptrdiff_t>();
 
         (*addr) = data.bits;
@@ -506,7 +494,7 @@ struct State {
       });
 
       defw("here", [](State& s) {
-        // TODO(vaddr): giving memory address directly to forth
+        // TODO(raddr): giving memory address directly to forth
         s.push((size_t)&s.memory[s.memory_i]);
         return E_OK;
       });
@@ -520,7 +508,7 @@ struct State {
         Cell addrcell;
         FT_CHECK(s.pop(addrcell));
 
-        // TODO(vaddr): dereferencing an address directly
+        // TODO(raddr): dereferencing an address directly
         ptrdiff_t addr = *addrcell.as<ptrdiff_t>();
 
         return s.push(addr);
@@ -559,8 +547,8 @@ struct State {
           return E_EXPECTED_FORTH_WORD;
         }
 
-        // TODO(vaddr): Giving Forth an address directly.
-        // We can also give out cword vaddrs here.
+        // TODO(raddr): Giving Forth an address directly.
+        // We can also give out cword raddrs here.
         return s.push((ptrdiff_t)d->data<ptrdiff_t>());
 
         return E_OK;
@@ -573,7 +561,7 @@ struct State {
         Cell addrcell;
         // TODO: Check validity of address
         FT_CHECK(s.pop(addrcell));
-        // TODO(vaddr): Reading Forth memory directly
+        // TODO(raddr): Reading Forth memory directly
         ptrdiff_t* code = addrcell.as<ptrdiff_t>();
         size_t ip = 0;
         bool loop = true;
@@ -707,13 +695,13 @@ struct State {
   /***** MEMORY INTERACTION */
 
   /** Given a cword virtual address, find the actual function address */
-  Error cword_get(ptrdiff_t vaddr, c_word_t& cw) {
+  Error cword_get(ptrdiff_t raddr, c_word_t& cw) {
     // cword virtual addresses should always be odd this allows us to distinguish them from forth
     // word addresses
-    if((vaddr % 2) == 0) {
+    if((raddr % 2) == 0) {
       return E_INVALID_OPCODE;
     }
-    ptrdiff_t actual_idx = (vaddr + 1) / 2;
+    ptrdiff_t actual_idx = (raddr + 1) / 2;
     return cwords.get(actual_idx, cw);
   }
 
@@ -752,6 +740,24 @@ struct State {
 
   /***** DICTIONARY PRIMITIVES */
 
+  /** Check whether a relative address if valid */
+  Error raddr_valid(ptrdiff_t* addr) const {
+    ptrdiff_t a = (ptrdiff_t) addr;
+    if(a < 0 || a > memory_i) {
+      return E_INVALID_ADDRESS;
+    }
+    return E_OK;
+  }
+
+  ptrdiff_t real_to_raddr(ptrdiff_t* real) const {
+    return (ptrdiff_t)real - (ptrdiff_t)memory; 
+  }
+
+  /** Convert a relative address to a real pointer */
+  ptrdiff_t* raddr_to_real(ptrdiff_t* ptr) const {
+    return (ptrdiff_t*) &memory[(ptrdiff_t)ptr];
+  }
+
   /**
    * Allocate some memory for general purpose use
    */
@@ -760,7 +766,7 @@ struct State {
       return E_OUT_OF_MEMORY;
     }
 
-    // TODO(vaddr) giving a forth memory address directly
+    // TODO(raddr) giving a forth memory address directly
     addr = &memory[memory_i];
 
     memory_i += req;
@@ -831,7 +837,7 @@ struct State {
     char* addr;
     FT_CHECK(allot(sizeof(ptrdiff_t), addr));
 
-    FT_LOG(FT_CC, "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i]));
+    FT_LOG(FT_CC, "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i-sizeof(ptrdiff_t)]) << " (relative) " << memory_i-sizeof(ptrdiff_t));
 
     (*((ptrdiff_t*)addr)) = cell.bits;
 
@@ -971,7 +977,7 @@ struct State {
             } else {
               // Push forth call followed by pointer to forth VM code
               FT_CHECK(dict_put(OP_CALL_FORTH));
-              FT_CHECK(dict_put((ptrdiff_t) word->data<ptrdiff_t>()));
+              FT_CHECK(dict_put(real_to_raddr(word->data<ptrdiff_t>())));
             }
           } else {
             // Either interpreting or this is an immediate word
@@ -996,8 +1002,8 @@ struct State {
                 return e;
               }
             } else {
-              ptrdiff_t* code = word->data<ptrdiff_t>();
-              FT_CHECK(exec(code));
+              // ptrdiff_t* raddr = (ptrdiff_t*) *word->data<ptrdiff_t>();
+              FT_CHECK(exec((ptrdiff_t*) real_to_raddr(word->data<ptrdiff_t>())));
             }
           }
         } else {
@@ -1027,7 +1033,7 @@ struct State {
   };
 
   /** Execute user defined Forth code */
-  Error exec(ptrdiff_t* code) {
+  Error exec(ptrdiff_t* code_relative) {
 #if FT_COMPUTED_GOTO
 # define FT_VM_CASE(label) LABEL_##label
 # define FT_VM_DISPATCH() goto *dispatch_table[*cp++];
@@ -1037,6 +1043,8 @@ struct State {
 # define FT_VM_DISPATCH() break;
 # define FT_VM_SWITCH() switch(*cp++)
 #endif
+    FT_CHECKF(raddr_valid(code_relative), "exec got invalid address %ld", code_relative);
+    ptrdiff_t* code = raddr_to_real(code_relative);
     // Save locals spot to clean up afterwards
     LocalsSave ls(*this);
 
@@ -1051,9 +1059,9 @@ struct State {
           continue;
         }
         case OP_CALL_FORTH: {
-          ptrdiff_t* next = (ptrdiff_t*) code[ip++];
-          FT_LOG(FT_VM, "OP_CALL_FORTH @ " << (size_t)&code[ip-2] << ' ' << next);
-          FT_CHECK(exec(next));
+          ptrdiff_t* next =  raddr_to_real((ptrdiff_t*) code[ip++]);
+          FT_LOG(FT_VM, "OP_CALL_FORTH @ " << (size_t)&code[ip-2] << ' ' << (ptrdiff_t)next << " (relative) " << code[ip-1]);
+          FT_CHECK(exec((ptrdiff_t*) code[ip-1]));
           continue;
         }
         case OP_CALL_C: {
