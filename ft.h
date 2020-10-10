@@ -3,13 +3,16 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <string.h>
 
+// TODO This is only available under certain compilers
+#define FT_COMPUTED_GOTO 1
+
 // Logs for debugging, if needed
 
-#define FT_COMPUTED_GOTO 1
 
 // Trace all virtual machine access
 #define FT_VM (1 << 1)
@@ -465,9 +468,7 @@ struct State {
         // Increment local count
         s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
 
-        // Overwrite address with current address
-        // TODO(raddr): Taking an address directly
-        (*jmpaddr) = (ptrdiff_t) &s.memory[s.memory_i];
+        (*jmpaddr) = (ptrdiff_t) s.real_to_raddr((ptrdiff_t*) &s.memory[s.memory_i]);
 
         // Then just continue
         s.shared[S_WORD_AVAILABLE].bits = 0;
@@ -483,22 +484,18 @@ struct State {
         FT_CHECK(s.pop(data));
 
         // TODO(raddr): writing directly to memory address
-        ptrdiff_t *addr = addrcell.as<ptrdiff_t>();
+        ptrdiff_t *real, *raddr = addrcell.as<ptrdiff_t>();
+        FT_CHECK(s.raddr_valid(raddr));
 
-        (*addr) = data.bits;
+        real = s.raddr_to_real(raddr);
 
-        // TODO: Check for valid in-memory reference
-
-        // Although one option this does enable is just
-        // giving Forth straight up pointers to C things
-        // and overwriting them.
+        (*real) = data.bits;
 
         return E_OK;
       });
 
       defw("here", [](State& s) {
-        // TODO(raddr): giving memory address directly to forth
-        s.push((size_t)&s.memory[s.memory_i]);
+        s.push(s.memory_i);
         return E_OK;
       });
 
@@ -511,10 +508,11 @@ struct State {
         Cell addrcell;
         FT_CHECK(s.pop(addrcell));
 
-        // TODO(raddr): dereferencing an address directly
-        ptrdiff_t addr = *addrcell.as<ptrdiff_t>();
+        ptrdiff_t* raddr = addrcell.as<ptrdiff_t>();
+        FT_CHECK(s.raddr_valid(raddr));
+        ptrdiff_t* real = s.raddr_to_real(raddr);
 
-        return s.push(addr);
+        return s.push(*real);
       });
 
       /***** STACK MANIPULATION WORDS */
@@ -547,12 +545,11 @@ struct State {
         if(!d) return E_WORD_NOT_FOUND;
 
         if((d->flags & DictEntry::FLAG_CWORD) != 0) {
+          // TODO: Give out cword addr
           return E_EXPECTED_FORTH_WORD;
         }
 
-        // TODO(raddr): Giving Forth an address directly.
-        // We can also give out cword raddrs here.
-        return s.push((ptrdiff_t)d->data<ptrdiff_t>());
+        return s.push((ptrdiff_t) s.real_to_raddr(d->data<ptrdiff_t>()));
 
         return E_OK;
       });
@@ -753,6 +750,7 @@ struct State {
     return E_OK;
   }
 
+  /** Convert a real pointer to a valid address */
   ptrdiff_t real_to_raddr(ptrdiff_t* real) const {
     return (ptrdiff_t)real - (ptrdiff_t)memory; 
   }
@@ -761,6 +759,7 @@ struct State {
   ptrdiff_t* raddr_to_real(ptrdiff_t* ptr) const {
     return (ptrdiff_t*) &memory[(ptrdiff_t)ptr];
   }
+
 
   /**
    * Allocate some memory for general purpose use
@@ -1097,21 +1096,23 @@ struct State {
           if(si == 0) {
             return E_STACK_UNDERFLOW;
           }
-          ptrdiff_t label = code[ip++];
+          ptrdiff_t* label = (ptrdiff_t*) code[ip++];
           FT_LOG(FT_VM, "OP_JUMP_IF_ZERO @ " << (size_t)&code[ip-2] << ' ' << (size_t)label);
           si -= 1;
           if(stack[si].bits == 0) {
-            code = (ptrdiff_t*) label;
+            FT_CHECK(raddr_valid((ptrdiff_t*)label));
+            code = raddr_to_real(label);
             ip = 0;
           }
           FT_VM_DISPATCH();
         }
         FT_VM_CASE(OP_JUMP_IGNORED):
         FT_VM_CASE(OP_JUMP): {
-          ptrdiff_t label = code[ip++];
+          ptrdiff_t* label = (ptrdiff_t*) code[ip++];
           FT_LOG(FT_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
           ip = 0;
-          code = (ptrdiff_t*) label;
+          FT_CHECK(raddr_valid(label));
+          code = raddr_to_real(label);
           FT_VM_DISPATCH();
         }
         FT_VM_CASE(OP_LOCAL_PUSH): {
@@ -1128,7 +1129,6 @@ struct State {
           Cell val;
           FT_CHECK(pop(val));
 
-          // TODO: potential memory overflow
           FT_CHECK(locals.push(val.bits));
           locals.data[locals.i++] = val.bits;
           FT_VM_DISPATCH();

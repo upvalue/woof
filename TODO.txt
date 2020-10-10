@@ -1,6 +1,7 @@
 - safety
--- better error reporting: format messages
-xx switch memory addresses to relative to forth, and only allow references to into forth
+x- better error reporting: format messages
+   kind of done, i added some functions for this, 
+   just need to make sure they're used throughout
 - write basic prelude
 - variables
 ? local variables

@@ -3,7 +3,6 @@ CXX := clang++
 
 RAYLIB_LDFLAGS := $(shell pkg-config --libs raylib)
 
-
 all: repl test
 
 vendor/linenoise/linenoise.o: vendor/linenoise/linenoise.c
@@ -14,3 +13,6 @@ repl: repl.cpp vendor/linenoise/linenoise.o ft.h
 
 test: test.cpp ft.h
 	$(CXX) -Ivendor/doctest -g3 -o $@ $<
+
+clean:
+	rm -f repl test
