@@ -66,8 +66,16 @@ TEST_CASE("ft.h") {
   }
 
   SUBCASE("can use locals") {
-    CHECK(s.exec(": add { a b } a b + ; 5 10 add"));
+    CHECK(s.exec(": add { a b } a b + ; 5 10 add") == E_OK);
     CHECK(s.si == 1);
     CHECK(s.stack[0].bits == 15);
+  }
+
+  SUBCASE("can use locals 2") {
+    CHECK(s.exec(": local3swap { a b c } c b a ; 1 2 3 local3swap" ) == E_OK);
+    CHECK(s.si == 3);
+    CHECK(s.stack[0].bits == 3);
+    CHECK(s.stack[1].bits == 2);
+    CHECK(s.stack[2].bits == 1);
   }
 }

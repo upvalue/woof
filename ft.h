@@ -24,8 +24,7 @@
 #define FT_CC (1 << 4)
 
 // #define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
-// #define FT_LOG_TAGS (FT_CC + FT_VM)
-#define FT_LOG_TAGS 0
+#define FT_LOG_TAGS (FT_VM)
 
 #if FT_LOG_TAGS
 # define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
@@ -1121,7 +1120,7 @@ struct State {
           ptrdiff_t actual = locals.i - local - 1;
           FT_LOG(FT_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
 
-          push(locals.data[actual]);
+          FT_CHECK(push(locals.data[actual]));
           FT_VM_DISPATCH();
         }
         FT_VM_CASE(OP_LOCAL_SET): {
@@ -1130,7 +1129,6 @@ struct State {
           FT_CHECK(pop(val));
 
           FT_CHECK(locals.push(val.bits));
-          locals.data[locals.i++] = val.bits;
           FT_VM_DISPATCH();
         }
         FT_VM_CASE(OP_UNKNOWN): {
