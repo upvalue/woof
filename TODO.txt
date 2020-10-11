@@ -39,5 +39,5 @@ x- better error reporting: format messages
 -- audit use of cell, it's kind of weird
    sometimes i use it to retrieve pointers, other times to set pointers
    maybe it should track actual offset in memory? rather than being raw bits
-
 - basic strings
+- think of a better name than ft.h

@@ -267,6 +267,8 @@ enum {
   S_COMPILING,
   /** Local count, count of locals emitted in { */
   S_LOCAL_COUNT,
+  /** For compilation -- a root node to reset LATEST to after compilation completes */
+  S_DICT_ROOT,
   S_USER_SHARED,
 };
 
@@ -377,12 +379,16 @@ struct State {
         s.shared[S_COMPILING] = 1;
 
         DictEntry* d = 0;
-        return s.create(s.scratch, d);
+        Error e = s.create(s.scratch, d);
+        if(e != E_OK) return e;
+        s.shared[S_DICT_ROOT] = s.shared[S_LATEST];
+        return E_OK;
       });
 
       defw(";", [](State& s) {
         FT_CHECK(s.dict_put(OP_EXIT));
         s.shared[S_COMPILING] = 0;
+        s.shared[S_LATEST] = s.shared[S_DICT_ROOT];
         return E_OK;
       }, DictEntry::FLAG_IMMEDIATE + DictEntry::FLAG_COMPILE_ONLY);
       
@@ -445,7 +451,6 @@ struct State {
         // It would actually be possible to calculate this in advance
         // but kind of annoying
 
-        // TODO(raddr): Taking an address directly
         ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
         FT_CHECK(s.dict_put(-1));
 
