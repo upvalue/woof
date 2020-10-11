@@ -9,7 +9,7 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <p>hello world 2</p>
+      {[1,2,3,4,5].map(x => `number ${x} `)}
     </div>
   )
 }
