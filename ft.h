@@ -13,7 +13,6 @@
 
 // Logs for debugging, if needed
 
-
 // Trace all virtual machine access
 #define FT_VM (1 << 1)
 // Trace all evaluation code
@@ -24,7 +23,7 @@
 #define FT_CC (1 << 4)
 
 // #define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
-#define FT_LOG_TAGS (FT_VM)
+#define FT_LOG_TAGS (0)
 
 #if FT_LOG_TAGS
 # define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
@@ -365,6 +364,14 @@ struct State {
         return E_OK;
       });
 
+      defw(".s", [](State& s) {
+        for(size_t i = 0; i != s.si; i++) {
+          printf("%ld ", s.stack[i].bits);
+        }
+        printf("\n");
+        return E_OK;
+      });
+
       /***** META / SYSTEM WORDS */
 
       defw(":", [](State& s) {
@@ -493,6 +500,8 @@ struct State {
         (*pushaddr) = s.real_to_raddr((ptrdiff_t*) &s.memory[s.memory_i]);
         FT_CHECK(s.dict_put(0));
 
+        s.shared[S_WORD_AVAILABLE] = 0;
+
         return E_OK;
       });
 
@@ -523,6 +532,8 @@ struct State {
         FT_CHECK(s.allot(*bytes, addr));
         ptrdiff_t relative = s.real_to_raddr(addr);
 
+        // Difference from forth: allot returns the address of the thing it just allocated, seems
+        // more convenient than having to save and shuffle HERE
         return s.push(relative);
       });
 

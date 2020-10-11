@@ -1,3 +1,5 @@
+- control flow
+-- do? loop
 - safety
 x- better error reporting: format messages
    kind of done, i added some functions for this, 
@@ -25,7 +27,6 @@ x- better error reporting: format messages
 - DX
 -- stack traces
 - floating point numbers
-- loops of some kind
 - console (non interactive) game of life
 - gfx bindings
 - graphical game of life
