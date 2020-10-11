@@ -1,11 +1,11 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
-#include "ft.h"
+#include "woof.h"
 
 #include "raylib.h"
 
-using namespace ft;
+using namespace woof;
 
 struct TestState {
   TestState(): cfg(), state(cfg) {}
@@ -86,7 +86,7 @@ TEST_CASE("ft.h") {
     CHECK(s.stack[1].bits == 5);
 
     CHECK(s.exec("variable x1 variable x2 x2 @") == E_OK);
-    CHECK(s.si == 1);
+    CHECK(s.si == 3);
     CHECK(s.stack[0].bits == 0);
   }
 

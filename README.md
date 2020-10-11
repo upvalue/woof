@@ -1,4 +1,4 @@
-# ft.h
+# woof
 
 a forth implementation in a header, with easy C++ interop
 

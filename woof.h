@@ -1,5 +1,5 @@
-#ifndef _FT_H
-#define _FT_H
+#ifndef _WF_H
+#define _WF_H
 
 #include <assert.h>
 #include <ctype.h>
@@ -9,52 +9,52 @@
 #include <string.h>
 
 // TODO This is only available under certain compilers
-#define FT_COMPUTED_GOTO 1
+#define WF_COMPUTED_GOTO 1
 
 // Logs for debugging, if needed
 
 // Trace all virtual machine access
-#define FT_VM (1 << 1)
+#define WF_VM (1 << 1)
 // Trace all evaluation code
-#define FT_EVAL (1 << 2)
+#define WF_EVAL (1 << 2)
 // Trace various runtime things
-#define FT_RT (1 << 3)
+#define WF_RT (1 << 3)
 // Trace compilation emission
-#define FT_CC (1 << 4)
+#define WF_CC (1 << 4)
 
-// #define FT_LOG_TAGS (FT_VM + FT_RT + FT_CC)
-#define FT_LOG_TAGS (0)
+// #define WF_LOG_TAGS (WF_VM + WF_RT + WF_CC)
+#define WF_LOG_TAGS (0)
 
-#if FT_LOG_TAGS
-# define FT_LOG(tag, exp) do { if(((FT_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
+#if WF_LOG_TAGS
+# define WF_LOG(tag, exp) do { if(((WF_LOG_TAGS) & tag)) { std::cout << exp << std::endl; } } while(0);
 #else
-# define FT_LOG(tag, exp)
+# define WF_LOG(tag, exp)
 #endif 
 
-#define FT_ASSERT(x) assert(x)
+#define WF_ASSERT(x) assert(x)
 
 /**
  * Check for an error and return if there was one
  */
-#define FT_CHECK(e) do { ft::Error err = e; if(err != E_OK) { return err; }} while(0)
+#define WF_CHECK(e) do { woof::Error err = e; if(err != E_OK) { return err; }} while(0)
 
-#define FT_CHECKF(e, ...) do { ft::Error err = e; if(err != E_OK) { return errorf(err, __VA_ARGS__); }} while(0)
+#define WF_CHECKF(e, ...) do { woof::Error err = e; if(err != E_OK) { return errorf(err, __VA_ARGS__); }} while(0)
 
 /**
  * Size of scratch buffer to use for things like formatting strings and reading input
  */
-#ifndef FT_SCRATCH_SIZE
-# define FT_SCRATCH_SIZE 512
+#ifndef WF_SCRATCH_SIZE
+# define WF_SCRATCH_SIZE 512
 #endif
 
 /**
  * Number of pointers to share between C++ and Forth
  */
-#ifndef FT_SHARED_SIZE 
-# define FT_SHARED_SIZE 8
+#ifndef WF_SHARED_SIZE 
+# define WF_SHARED_SIZE 8
 #endif
 
-namespace ft {
+namespace woof {
 
 inline size_t align(int boundary, size_t value) {
   return (size_t)((value + (boundary - 1)) & -boundary);
@@ -317,7 +317,7 @@ struct State {
       // Zero out memory
       memset(stack, 0, stack_size * sizeof(Cell));
       memset(memory, 0, memory_size);
-      memset(scratch, 0, FT_SCRATCH_SIZE);
+      memset(scratch, 0, WF_SCRATCH_SIZE);
       memset(shared, 0, shared_size * sizeof(Cell));
       cwords.zero();
       locals.zero();
@@ -330,36 +330,36 @@ struct State {
 
       defw("+", [](State& s) {
         Cell a, b;
-        FT_CHECK(s.pop(a));
-        FT_CHECK(s.pop(b));
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
         return s.push(b.bits + a.bits);
       });
 
       defw("*", [](State& s) {
         Cell a, b;
-        FT_CHECK(s.pop(a));
-        FT_CHECK(s.pop(b));
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
         return s.push(a.bits * b.bits);
       });
 
       defw("-", [](State& s) {
         Cell a, b;
-        FT_CHECK(s.pop(a));
-        FT_CHECK(s.pop(b));
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
         return s.push(b.bits - a.bits);
       });
 
       defw(">", [](State& s) {
         Cell a, b;
-        FT_CHECK(s.pop(a));
-        FT_CHECK(s.pop(b));
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
         return s.push(b.bits > a.bits ? -1 : 0);
       });
 
       /***** I/O */
       defw(".", [](State& s) {
         Cell x;
-        FT_CHECK(s.pop(x));
+        WF_CHECK(s.pop(x));
         printf("%ld\n", x.bits);
         return E_OK;
       });
@@ -388,7 +388,7 @@ struct State {
       });
 
       defw(";", [](State& s) {
-        FT_CHECK(s.dict_put(OP_EXIT));
+        WF_CHECK(s.dict_put(OP_EXIT));
         s.shared[S_COMPILING] = 0;
 
         DictEntry* latest = s.shared[S_LATEST].as<DictEntry>();
@@ -417,8 +417,8 @@ struct State {
 
       defw(",", [](State& s) {
         Cell c;
-        FT_CHECK(s.pop(c));
-        FT_CHECK(s.dict_put(c));
+        WF_CHECK(s.pop(c));
+        WF_CHECK(s.dict_put(c));
         // Write something to here and bump it 
         return E_OK;
       });
@@ -433,7 +433,7 @@ struct State {
         // Emit code to set locals and mark local definitions as hidden
         if(strcmp(s.scratch, "}") == 0) {
           for(size_t i = 0; i != *s.shared[S_LOCAL_COUNT]; i++) {
-            FT_CHECK(s.dict_put(OP_LOCAL_SET));
+            WF_CHECK(s.dict_put(OP_LOCAL_SET));
           }
 
           // TODO: Mark locals as hidden
@@ -448,29 +448,29 @@ struct State {
 
         // We're about to define a local word, so emit a jump past the dictionary entry to the rest
         // of this word's code
-        FT_CHECK(s.dict_put(OP_JUMP_IGNORED));
+        WF_CHECK(s.dict_put(OP_JUMP_IGNORED));
 
         // Emit a nonsense address here to overwrite in one second
         // It would actually be possible to calculate this in advance
         // but kind of annoying
 
         ptrdiff_t* jmpaddr = (ptrdiff_t*)&s.memory[s.memory_i];
-        FT_CHECK(s.dict_put(-1));
+        WF_CHECK(s.dict_put(-1));
 
         // Create a new dictionary entry
         DictEntry *d = 0;
-        FT_CHECK(s.create(s.scratch, d));
+        WF_CHECK(s.create(s.scratch, d));
 
         d->flags = DictEntry::FLAG_COMPILE_ONLY + DictEntry::FLAG_IMMEDIATE;
 
         // Emit code to emit code to push local when this is called (SUCH WOW VERY META)
-        FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
-        FT_CHECK(s.dict_put(OP_LOCAL_PUSH));
-        FT_CHECK(s.dict_put_cword(","));
-        FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
-        FT_CHECK(s.dict_put(*s.shared[S_LOCAL_COUNT]));
-        FT_CHECK(s.dict_put_cword(","));
-        FT_CHECK(s.dict_put(OP_EXIT));
+        WF_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
+        WF_CHECK(s.dict_put(OP_LOCAL_PUSH));
+        WF_CHECK(s.dict_put_cword(","));
+        WF_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
+        WF_CHECK(s.dict_put(*s.shared[S_LOCAL_COUNT]));
+        WF_CHECK(s.dict_put_cword(","));
+        WF_CHECK(s.dict_put(OP_EXIT));
 
         // Increment local count
         s.shared[S_LOCAL_COUNT] = (*s.shared[S_LOCAL_COUNT] + 1);
@@ -489,16 +489,16 @@ struct State {
         
         DictEntry* d = 0;
         Error e = s.create(s.scratch, d);
-        FT_CHECK(e);
+        WF_CHECK(e);
 
 
-        FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
+        WF_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
 
         ptrdiff_t* pushaddr = (ptrdiff_t*) &s.memory[s.memory_i];
-        FT_CHECK(s.dict_put(-5));
-        FT_CHECK(s.dict_put(OP_EXIT));
+        WF_CHECK(s.dict_put(-5));
+        WF_CHECK(s.dict_put(OP_EXIT));
         (*pushaddr) = s.real_to_raddr((ptrdiff_t*) &s.memory[s.memory_i]);
-        FT_CHECK(s.dict_put(0));
+        WF_CHECK(s.dict_put(0));
 
         s.shared[S_WORD_AVAILABLE] = 0;
 
@@ -511,12 +511,12 @@ struct State {
       defw("!", [](State& s) {
         // Store data at address
         Cell addrcell, data;
-        FT_CHECK(s.pop(addrcell));
-        FT_CHECK(s.pop(data));
+        WF_CHECK(s.pop(addrcell));
+        WF_CHECK(s.pop(data));
 
         // TODO(raddr): writing directly to memory address
         ptrdiff_t *real, *raddr = addrcell.as<ptrdiff_t>();
-        FT_CHECK(s.raddr_valid(raddr));
+        WF_CHECK(s.raddr_valid(raddr));
 
         real = s.raddr_to_real(raddr);
 
@@ -527,9 +527,9 @@ struct State {
 
       defw("allot", [](State& s) {
         Cell bytes;
-        FT_CHECK(s.pop(bytes));
+        WF_CHECK(s.pop(bytes));
         ptrdiff_t* addr;
-        FT_CHECK(s.allot(*bytes, addr));
+        WF_CHECK(s.allot(*bytes, addr));
         ptrdiff_t relative = s.real_to_raddr(addr);
 
         // Difference from forth: allot returns the address of the thing it just allocated, seems
@@ -549,10 +549,10 @@ struct State {
 
       defw("@", [](State& s) {
         Cell addrcell;
-        FT_CHECK(s.pop(addrcell));
+        WF_CHECK(s.pop(addrcell));
 
         ptrdiff_t* raddr = addrcell.as<ptrdiff_t>();
-        FT_CHECK(s.raddr_valid(raddr));
+        WF_CHECK(s.raddr_valid(raddr));
         ptrdiff_t* real = s.raddr_to_real(raddr);
 
         return s.push(*real);
@@ -562,7 +562,7 @@ struct State {
 
       defw("dup", [](State& s) {
         Cell c;
-        FT_CHECK(s.pick(0, c));
+        WF_CHECK(s.pick(0, c));
         return s.push(c);
       });
 
@@ -572,9 +572,9 @@ struct State {
 
       defw("swap", [](State& s) {
         Cell a, b;
-        FT_CHECK(s.pop(a));
-        FT_CHECK(s.pop(b));
-        FT_CHECK(s.push(a));
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
+        WF_CHECK(s.push(a));
         return s.push(b);
       });
 
@@ -603,7 +603,7 @@ struct State {
       defw("decompile", [](State& s) {
         Cell addrcell;
         // TODO: Check validity of address
-        FT_CHECK(s.pop(addrcell));
+        WF_CHECK(s.pop(addrcell));
         // TODO(raddr): Reading Forth memory directly
         ptrdiff_t* code = addrcell.as<ptrdiff_t>();
         size_t ip = 0;
@@ -679,7 +679,7 @@ struct State {
   /**
    * Scratch buffer, for doing things with strings
    */
-  char scratch[FT_SCRATCH_SIZE];
+  char scratch[WF_SCRATCH_SIZE];
   size_t scratch_i;
 
   Cell* shared;
@@ -752,7 +752,7 @@ struct State {
   /***** SCRATCH INTERACTION */
 
   Error scratch_put(char c) {
-    if(scratch_i == FT_SCRATCH_SIZE) {
+    if(scratch_i == WF_SCRATCH_SIZE) {
       return E_OUT_OF_SCRATCH;
     }
     scratch[scratch_i++] = c;
@@ -764,12 +764,12 @@ struct State {
    * by appending a newline and writing to scratch spae
    */
   Error errorf_append(Error e, const char* fmt, ...) {
-    if(scratch_i < FT_SCRATCH_SIZE - 1) {
+    if(scratch_i < WF_SCRATCH_SIZE - 1) {
       va_list va;
       va_start(va, fmt);
       // overwrite \0 with newline
       scratch[scratch_i-1] = '\n';
-      scratch_i += vsnprintf(&scratch[scratch_i], FT_SCRATCH_SIZE - scratch_i, fmt, va);
+      scratch_i += vsnprintf(&scratch[scratch_i], WF_SCRATCH_SIZE - scratch_i, fmt, va);
       va_end(va);
     }
     return e;
@@ -778,7 +778,7 @@ struct State {
   Error errorf(Error e, const char* fmt, ...) {
     va_list va;
     va_start(va, fmt);
-    vsnprintf(scratch, FT_SCRATCH_SIZE, fmt, va);
+    vsnprintf(scratch, WF_SCRATCH_SIZE, fmt, va);
     va_end(va);
     return e;
   }
@@ -826,17 +826,17 @@ struct State {
     size_t name_length = strlen(name);
     size_t size = sizeof(DictEntry) + align(sizeof(ptrdiff_t), name_length + 1);
 
-    FT_CHECK(allot(size, d));
+    WF_CHECK(allot(size, d));
 
     d->previous = shared[S_LATEST].as<DictEntry>();
     d->name_length = name_length;
     strncpy(d->name, name, name_length);
 
-    FT_LOG(FT_RT, "create word " << name);
+    WF_LOG(WF_RT, "create word " << name);
 
-    FT_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
-    FT_ASSERT(d->name_length == name_length);
-    FT_ASSERT(strcmp(d->name, name) == 0);
+    WF_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
+    WF_ASSERT(d->name_length == name_length);
+    WF_ASSERT(strcmp(d->name, name) == 0);
 
     shared[S_LATEST].set(d);
 
@@ -848,23 +848,23 @@ struct State {
    */
   Error defw(const char* name, c_word_t fnaddr, ptrdiff_t flags = 0) {
     DictEntry* d = 0;
-    FT_CHECK(create(name, d));
+    WF_CHECK(create(name, d));
 
     d->flags = DictEntry::FLAG_CWORD + flags;
 
     // Save the index of the cword in the cwords array
     size_t cword_idx = cwords.i == 0 ? 0 : (cwords.i * 2) - 1;
-    FT_CHECK(cwords.push((size_t) fnaddr));
+    WF_CHECK(cwords.push((size_t) fnaddr));
 
-    FT_CHECK(dict_put(cword_idx));
+    WF_CHECK(dict_put(cword_idx));
 
     // TODO: It's possible for Forth code to overwrite this and cause us to call an invalid value
     // which would make ft.h crash. One possibility would be registering all C functions in an array
     // and only calling known indexes in that array. That way, even corrupted forth code could not
     // segfault, only call nonsensical C functions
 
-    FT_ASSERT(*d->data<size_t>() == cword_idx);
-    FT_ASSERT(d->flags & DictEntry::FLAG_CWORD);
+    WF_ASSERT(*d->data<size_t>() == cword_idx);
+    WF_ASSERT(d->flags & DictEntry::FLAG_CWORD);
 
     return E_OK;
   }
@@ -879,9 +879,9 @@ struct State {
   /** Push a cell into memory, comma in Forth */
   Error dict_put(Cell cell) {
     char* addr;
-    FT_CHECK(allot(sizeof(ptrdiff_t), addr));
+    WF_CHECK(allot(sizeof(ptrdiff_t), addr));
 
-    FT_LOG(FT_CC, "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i-sizeof(ptrdiff_t)]) << " (relative) " << memory_i-sizeof(ptrdiff_t));
+    WF_LOG(WF_CC, "emit " << cell.bits << " @ " << ((ptrdiff_t) &memory[memory_i-sizeof(ptrdiff_t)]) << " (relative) " << memory_i-sizeof(ptrdiff_t));
 
     (*((ptrdiff_t*)addr)) = cell.bits;
 
@@ -899,7 +899,7 @@ struct State {
       return E_EXPECTED_C_WORD;
     }
     
-    FT_CHECK(dict_put(OP_CALL_C));
+    WF_CHECK(dict_put(OP_CALL_C));
     return dict_put(*d->data<ptrdiff_t>());
   }
 
@@ -972,9 +972,9 @@ struct State {
           if(isspace(c)) { 
             break;
           }
-          FT_CHECK(scratch_put(c));
+          WF_CHECK(scratch_put(c));
         }
-        FT_CHECK(scratch_put('\0'));
+        WF_CHECK(scratch_put('\0'));
         tk = TK_WORD;
         return E_OK;
       }
@@ -992,7 +992,7 @@ struct State {
     input_i = 0;
 
     Token tk;
-    FT_CHECK(next_token(tk));
+    WF_CHECK(next_token(tk));
     while(tk != TK_END) {
       if(tk == TK_NUMBER) {
         // If interpreting, push directly
@@ -1016,24 +1016,24 @@ struct State {
           if(*shared[S_COMPILING] && (word->flags & DictEntry::FLAG_IMMEDIATE) == 0) {
             if(word->flags & DictEntry::FLAG_CWORD) {
               // Push c call followed by function pointer
-              FT_CHECK(dict_put(OP_CALL_C));
-              FT_CHECK(dict_put(*word->data<ptrdiff_t>()));
+              WF_CHECK(dict_put(OP_CALL_C));
+              WF_CHECK(dict_put(*word->data<ptrdiff_t>()));
             } else {
               // Push forth call followed by pointer to forth VM code
-              FT_CHECK(dict_put(OP_CALL_FORTH));
-              FT_CHECK(dict_put(real_to_raddr(word->data<ptrdiff_t>())));
+              WF_CHECK(dict_put(OP_CALL_FORTH));
+              WF_CHECK(dict_put(real_to_raddr(word->data<ptrdiff_t>())));
             }
           } else {
             // Either interpreting or this is an immediate word
             if(word->flags & DictEntry::FLAG_CWORD) {
               c_word_t cw;
-              FT_CHECK(cword_get(*word->data<ptrdiff_t>(), cw));
+              WF_CHECK(cword_get(*word->data<ptrdiff_t>(), cw));
 
               Error e = cw(*this);
               while(e == E_WANT_WORD) {
                 // Attempt to read additional word name to pass through
                 Token tk2;
-                FT_CHECK(next_token(tk2));
+                WF_CHECK(next_token(tk2));
 
                 // Whatever we got wasn't a word, so just pass the error through
                 if(tk2 != TK_WORD) return E_WANT_WORD;
@@ -1047,14 +1047,14 @@ struct State {
               }
             } else {
               // ptrdiff_t* raddr = (ptrdiff_t*) *word->data<ptrdiff_t>();
-              FT_CHECK(exec((ptrdiff_t*) real_to_raddr(word->data<ptrdiff_t>())));
+              WF_CHECK(exec((ptrdiff_t*) real_to_raddr(word->data<ptrdiff_t>())));
             }
           }
         } else {
           return errorf_append(E_WORD_NOT_FOUND, "could not find word during interpretation");
         }
       }
-      FT_CHECK(next_token(tk));
+      WF_CHECK(next_token(tk));
     }
 
     return E_OK;
@@ -1068,7 +1068,7 @@ struct State {
     ~LocalsSave() {
       if(state.locals.i != locals_i) {
         state.locals.i = locals_i;
-        FT_LOG(FT_VM, "% restored locals to " << locals_i);
+        WF_LOG(WF_VM, "% restored locals to " << locals_i);
       }
     }
 
@@ -1078,10 +1078,10 @@ struct State {
 
   /** Execute user defined Forth code */
   Error exec(ptrdiff_t* code_relative) {
-#if FT_COMPUTED_GOTO
-# define FT_VM_CASE(label) LABEL_##label
-# define FT_VM_DISPATCH() goto *dispatch_table[code[ip++]];
-# define FT_VM_SWITCH()
+#if WF_COMPUTED_GOTO
+# define WF_VM_CASE(label) LABEL_##label
+# define WF_VM_DISPATCH() goto *dispatch_table[code[ip++]];
+# define WF_VM_SWITCH()
     static void* dispatch_table[] = {
       &&LABEL_OP_UNKNOWN,
       &&LABEL_OP_PUSH_IMMEDIATE,
@@ -1095,11 +1095,11 @@ struct State {
       &&LABEL_OP_EXIT,
     };
 #else 
-# define FT_VM_CASE(label) case label
-# define FT_VM_DISPATCH() break;
-# define FT_VM_SWITCH() switch(code[ip++])
+# define WF_VM_CASE(label) case label
+# define WF_VM_DISPATCH() break;
+# define WF_VM_SWITCH() switch(code[ip++])
 #endif
-    FT_CHECKF(raddr_valid(code_relative), "exec got invalid address %ld", code_relative);
+    WF_CHECKF(raddr_valid(code_relative), "exec got invalid address %ld", code_relative);
     ptrdiff_t* code = raddr_to_real(code_relative);
     // Save locals spot to clean up afterwards
     LocalsSave ls(*this);
@@ -1107,74 +1107,74 @@ struct State {
     size_t ip = 0;
 
     while(true) {
-      FT_VM_DISPATCH();
-      FT_VM_SWITCH() {
-        FT_VM_CASE(OP_PUSH_IMMEDIATE): {
+      WF_VM_DISPATCH();
+      WF_VM_SWITCH() {
+        WF_VM_CASE(OP_PUSH_IMMEDIATE): {
           ptrdiff_t n = code[ip++];
-          FT_LOG(FT_VM, "OP_PUSH_IMMEDIATE @ " << (size_t)&code[ip-2] << ' ' << n);
+          WF_LOG(WF_VM, "OP_PUSH_IMMEDIATE @ " << (size_t)&code[ip-2] << ' ' << n);
           push(n);
-          FT_VM_DISPATCH();
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_CALL_FORTH): {
+        WF_VM_CASE(OP_CALL_FORTH): {
           ptrdiff_t* next =  raddr_to_real((ptrdiff_t*) code[ip++]);
-          FT_LOG(FT_VM, "OP_CALL_FORTH @ " << (size_t)&code[ip-2] << ' ' << (ptrdiff_t)next << " (relative) " << code[ip-1]);
-          FT_CHECK(exec((ptrdiff_t*) code[ip-1]));
-          FT_VM_DISPATCH();
+          WF_LOG(WF_VM, "OP_CALL_FORTH @ " << (size_t)&code[ip-2] << ' ' << (ptrdiff_t)next << " (relative) " << code[ip-1]);
+          WF_CHECK(exec((ptrdiff_t*) code[ip-1]));
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_CALL_C): {
+        WF_VM_CASE(OP_CALL_C): {
           c_word_t cw;
-          FT_CHECK(cword_get(code[ip++], cw));
-          FT_LOG(FT_VM, "OP_CALL_C @ " << (size_t)&code[ip-2] << ' ' << (size_t) cw);
-          FT_CHECK(cw(*this));
-          FT_VM_DISPATCH();
+          WF_CHECK(cword_get(code[ip++], cw));
+          WF_LOG(WF_VM, "OP_CALL_C @ " << (size_t)&code[ip-2] << ' ' << (size_t) cw);
+          WF_CHECK(cw(*this));
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_EXIT): {
-          FT_LOG(FT_VM, "OP_EXIT @ " << (size_t)&code[ip-1]);
+        WF_VM_CASE(OP_EXIT): {
+          WF_LOG(WF_VM, "OP_EXIT @ " << (size_t)&code[ip-1]);
           return E_OK;
         }
-        FT_VM_CASE(OP_JUMP_IF_ZERO): {
+        WF_VM_CASE(OP_JUMP_IF_ZERO): {
           // Check stack
           if(si == 0) {
             return E_STACK_UNDERFLOW;
           }
           ptrdiff_t* label = (ptrdiff_t*) code[ip++];
-          FT_LOG(FT_VM, "OP_JUMP_IF_ZERO @ " << (size_t)&code[ip-2] << ' ' << (size_t)label);
+          WF_LOG(WF_VM, "OP_JUMP_IF_ZERO @ " << (size_t)&code[ip-2] << ' ' << (size_t)label);
           si -= 1;
           if(stack[si].bits == 0) {
-            FT_CHECK(raddr_valid((ptrdiff_t*)label));
+            WF_CHECK(raddr_valid((ptrdiff_t*)label));
             code = raddr_to_real(label);
             ip = 0;
           }
-          FT_VM_DISPATCH();
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_JUMP_IGNORED):
-        FT_VM_CASE(OP_JUMP): {
+        WF_VM_CASE(OP_JUMP_IGNORED):
+        WF_VM_CASE(OP_JUMP): {
           ptrdiff_t* label = (ptrdiff_t*) code[ip++];
-          FT_LOG(FT_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
+          WF_LOG(WF_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
           ip = 0;
-          FT_CHECK(raddr_valid(label));
+          WF_CHECK(raddr_valid(label));
           code = raddr_to_real(label);
-          FT_VM_DISPATCH();
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_LOCAL_PUSH): {
+        WF_VM_CASE(OP_LOCAL_PUSH): {
           // Push a local value onto the data stack
           ptrdiff_t local = code[ip++];
           ptrdiff_t actual = locals.i - local - 1;
-          FT_LOG(FT_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
+          WF_LOG(WF_VM, "OP_LOCAL_PUSH @" << (size_t)&code[ip-1] << ' ' << local << " (actual " << actual << ")")
 
-          FT_CHECK(push(locals.data[actual]));
-          FT_VM_DISPATCH();
+          WF_CHECK(push(locals.data[actual]));
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_LOCAL_SET): {
-          FT_LOG(FT_VM, "OP_LOCAL_SET");
+        WF_VM_CASE(OP_LOCAL_SET): {
+          WF_LOG(WF_VM, "OP_LOCAL_SET");
           Cell val;
-          FT_CHECK(pop(val));
+          WF_CHECK(pop(val));
 
-          FT_CHECK(locals.push(val.bits));
-          FT_VM_DISPATCH();
+          WF_CHECK(locals.push(val.bits));
+          WF_VM_DISPATCH();
         }
-        FT_VM_CASE(OP_UNKNOWN): {
-          FT_LOG(FT_VM, "E_INVALID_OPCODE @ " << (size_t)&code[ip-1] << ' ' << code[ip-1]);
+        WF_VM_CASE(OP_UNKNOWN): {
+          WF_LOG(WF_VM, "E_INVALID_OPCODE @ " << (size_t)&code[ip-1] << ' ' << code[ip-1]);
           return E_INVALID_OPCODE;
         }
       }

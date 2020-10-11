@@ -8,9 +8,9 @@
 #include "linenoise.h"
 #include "raylib.h"
 
-#include "ft.h"
+#include "woof.h"
 
-using namespace ft;
+using namespace woof;
 
 StaticStateConfig<> memory;
 
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   }
 
   if(do_repl) {
-    std::cout << "ft.h \\o/" << std::endl;
+    std::cout << "woof \\o/" << std::endl;
 
     while((ln = linenoise("> "))) {
       Error e = state.exec(ln);
