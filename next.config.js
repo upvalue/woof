@@ -1,3 +1,3 @@
 module.exports = {
-  baseDir: '/docs',
+  basePath: '/docs',
 }
