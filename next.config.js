@@ -1,4 +1,4 @@
 module.exports = {
-  basePath: '/docs',
-  assetPrefix: '/woof',
+  basePath: process.env.NODE_ENV === 'development' ? undefined : '/docs',
+  assetPrefix: process.env.NODE_ENV === 'development' ? undefined : '/woof',
 }
