@@ -267,8 +267,6 @@ enum {
   S_COMPILING,
   /** Local count, count of locals emitted in { */
   S_LOCAL_COUNT,
-  /** For compilation -- a root node to reset LATEST to after compilation completes */
-  S_DICT_ROOT,
   S_USER_SHARED,
 };
 
@@ -379,16 +377,15 @@ struct State {
         s.shared[S_COMPILING] = 1;
 
         DictEntry* d = 0;
-        Error e = s.create(s.scratch, d);
-        if(e != E_OK) return e;
-        s.shared[S_DICT_ROOT] = s.shared[S_LATEST];
-        return E_OK;
+        return s.create(s.scratch, d);
       });
 
       defw(";", [](State& s) {
         FT_CHECK(s.dict_put(OP_EXIT));
         s.shared[S_COMPILING] = 0;
-        s.shared[S_LATEST] = s.shared[S_DICT_ROOT];
+
+        DictEntry* latest = s.shared[S_LATEST].as<DictEntry>();
+
         return E_OK;
       }, DictEntry::FLAG_IMMEDIATE + DictEntry::FLAG_COMPILE_ONLY);
       
@@ -440,7 +437,6 @@ struct State {
 
           // Then quit
           return E_OK;
-
         }
 
         // We're about to define a local word, so emit a jump past the dictionary entry to the rest
@@ -479,6 +475,28 @@ struct State {
         return E_WANT_WORD;
       }, DictEntry::FLAG_IMMEDIATE + DictEntry::FLAG_COMPILE_ONLY);
 
+      defw("variable", [](State& s) {
+        if(*s.shared[S_WORD_AVAILABLE] == 0) {
+          return E_WANT_WORD;
+        }
+        
+        DictEntry* d = 0;
+        Error e = s.create(s.scratch, d);
+        FT_CHECK(e);
+
+
+        FT_CHECK(s.dict_put(OP_PUSH_IMMEDIATE));
+
+        ptrdiff_t* pushaddr = (ptrdiff_t*) &s.memory[s.memory_i];
+        FT_CHECK(s.dict_put(-5));
+        FT_CHECK(s.dict_put(OP_EXIT));
+        (*pushaddr) = s.real_to_raddr((ptrdiff_t*) &s.memory[s.memory_i]);
+        FT_CHECK(s.dict_put(0));
+
+        return E_OK;
+      });
+
+
       /***** MEMORY MANIPULATION */
 
       defw("!", [](State& s) {
@@ -496,6 +514,16 @@ struct State {
         (*real) = data.bits;
 
         return E_OK;
+      });
+
+      defw("allot", [](State& s) {
+        Cell bytes;
+        FT_CHECK(s.pop(bytes));
+        ptrdiff_t* addr;
+        FT_CHECK(s.allot(*bytes, addr));
+        ptrdiff_t relative = s.real_to_raddr(addr);
+
+        return s.push(relative);
       });
 
       defw("here", [](State& s) {
@@ -728,8 +756,9 @@ struct State {
     if(scratch_i < FT_SCRATCH_SIZE - 1) {
       va_list va;
       va_start(va, fmt);
-      scratch[scratch_i++] = '\n';
-      vsnprintf(&scratch[scratch_i], FT_SCRATCH_SIZE - scratch_i, fmt, va);
+      // overwrite \0 with newline
+      scratch[scratch_i-1] = '\n';
+      scratch_i += vsnprintf(&scratch[scratch_i], FT_SCRATCH_SIZE - scratch_i, fmt, va);
       va_end(va);
     }
     return e;
@@ -768,13 +797,13 @@ struct State {
   /**
    * Allocate some memory for general purpose use
    */
-  Error allot(size_t req, char*& addr) {
+  template <class T>
+  Error allot(size_t req, T*& addr) {
     if(memory_i + req > memory_size) {
       return E_OUT_OF_MEMORY;
     }
 
-    // TODO(raddr) giving a forth memory address directly
-    addr = &memory[memory_i];
+    addr = (T*) &memory[memory_i];
 
     memory_i += req;
 
@@ -785,11 +814,8 @@ struct State {
   Error create(const char* name, DictEntry*& d) {
     size_t name_length = strlen(name);
     size_t size = sizeof(DictEntry) + align(sizeof(ptrdiff_t), name_length + 1);
-    char* dict_addr = 0;
 
-    FT_CHECK(allot(size, dict_addr));
-
-    d = (DictEntry*) dict_addr;
+    FT_CHECK(allot(size, d));
 
     d->previous = shared[S_LATEST].as<DictEntry>();
     d->name_length = name_length;
@@ -1014,7 +1040,7 @@ struct State {
             }
           }
         } else {
-          return E_WORD_NOT_FOUND;
+          return errorf_append(E_WORD_NOT_FOUND, "could not find word during interpretation");
         }
       }
       FT_CHECK(next_token(tk));

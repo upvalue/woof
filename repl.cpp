@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     Error e = state.exec(body.c_str());
 
     if(e != E_OK) {
-      std::cout << "Error: " << error_description(e) << std::endl;
+      std::cout << "Error: " << state.scratch << std::endl << error_description(e) << std::endl;;
     }
 
   }
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
       Error e = state.exec(ln);
 
       if(e) {
-        std::cout << "Error: " << error_description(e) << std::endl << state.scratch << std::endl;
+        std::cout << "Error: " << state.scratch << std::endl << error_description(e) << std::endl;
       }
 
       for(size_t i = 0; i != state.si; i += 1) {

@@ -78,4 +78,11 @@ TEST_CASE("ft.h") {
     CHECK(s.stack[1].bits == 2);
     CHECK(s.stack[2].bits == 1);
   }
+
+  SUBCASE("can use variables") {
+    CHECK(s.exec("variable x x @ 5 x ! x @") == E_OK);
+    CHECK(s.si == 2);
+    CHECK(s.stack[0].bits == 0);
+    CHECK(s.stack[1].bits == 5);
+  }
 }
