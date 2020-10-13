@@ -40,7 +40,11 @@ x- better error reporting: format messages
 -- audit use of cell, it's kind of weird
    sometimes i use it to retrieve pointers, other times to set pointers
    maybe it should track actual offset in memory? rather than being raw bits
-- basic strings
-- think of a better name than ft.h
+-- another thing that would be good is having facilities for things like generating jumps, fairly common
+-- also, if i used pointers consistently and correctly, it would be possible to have functions like
+   push/pop do address conversion
 
 - it would be possible (and better) for words to just be able to hijack the reader completely
+
+x basic strings
+x think of a better name than ft.h

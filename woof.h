@@ -39,6 +39,7 @@
 #define WF_CHECK(e) do { woof::Error err = e; if(err != E_OK) { return err; }} while(0)
 
 #define WF_CHECKF(e, ...) do { woof::Error err = e; if(err != E_OK) { return errorf(err, __VA_ARGS__); }} while(0)
+#define WF_FN_CHECKF(f, e, ...) do { woof::Error err = e; if(err != E_OK) { return (s).errorf(err, __VA_ARGS__); }} while(0)
 
 /**
  * Size of scratch buffer to use for things like formatting strings and reading input
@@ -211,6 +212,15 @@ struct StaticStateConfig : StateConfig {
   Cell* shared_store[shared_size_num];
 };
 
+/**
+ * A string. Prefixed with size and null-terminated
+ */
+struct String {
+  size_t length;
+
+  char bytes[1];
+};
+
 /** 
  * An entry in the Forth dictionary
  */
@@ -233,13 +243,14 @@ struct DictEntry {
    */
   size_t flags;
 
-  size_t name_length;
+  String name;
 
-  char name[1];
+  // size_t name_length;
+  // char name[1];
   
   // The actual data in the dictionary comes afterwards
   template <class T> T* data() const {
-    return (T*) (((size_t) this) + sizeof(DictEntry) + align(sizeof(ptrdiff_t), name_length + 1));
+    return (T*) (((size_t) this) + sizeof(DictEntry) + align(sizeof(ptrdiff_t), name.length + 1));
   }
 };
 
@@ -271,7 +282,7 @@ enum {
 
 enum { INPUT_INTERPRET, INPUT_PASS_WORD };
 
-enum Token { TK_NUMBER, TK_WORD, TK_END, };
+enum Token { TK_NUMBER, TK_WORD, TK_STRING, TK_END, };
 
 enum Opcode {
   /** Null -- should not be encountered */
@@ -369,6 +380,38 @@ struct State {
           printf("%ld ", s.stack[i].bits);
         }
         printf("\n");
+        return E_OK;
+      });
+
+      defw("fmt", [](State& s) {
+        Cell ptr;
+        WF_CHECK(s.pop(ptr));
+        String* addr = (String*) s.raddr_to_real((ptrdiff_t*) ptr.bits);
+
+        size_t stack_use = 1;
+
+        for(size_t i = 0; i != addr->length; i += 1) {
+          if(i + 1 != addr->length) {
+            if(addr->bytes[i] == '%') {
+              if(addr->bytes[i+1] == 's') {
+                i++;
+                WF_FN_CHECKF(s, s.pop(ptr), "format string \"%s\" needs at least %ld values on stack but got %d", addr->bytes, stack_use+1, stack_use);
+                String* addr = (String*) s.raddr_to_real((ptrdiff_t*) ptr.bits);
+                puts(addr->bytes);
+                stack_use++;
+                continue;
+              } else if(addr->bytes[i+1] == 'd') {
+                i++;
+                WF_FN_CHECKF(s, s.pop(ptr), "format string \"%s\" needs at least %ld values on stack but got %d", addr->bytes, stack_use+1, stack_use);
+                stack_use++;
+                printf("%ld", ptr.bits);
+                continue;
+              }
+            }
+          }
+          putchar(addr->bytes[i]);
+        }
+
         return E_OK;
       });
 
@@ -604,8 +647,7 @@ struct State {
         Cell addrcell;
         // TODO: Check validity of address
         WF_CHECK(s.pop(addrcell));
-        // TODO(raddr): Reading Forth memory directly
-        ptrdiff_t* code = addrcell.as<ptrdiff_t>();
+        ptrdiff_t* code = s.raddr_to_real((ptrdiff_t*) addrcell.bits);
         size_t ip = 0;
         bool loop = true;
         while(loop) {
@@ -635,7 +677,7 @@ struct State {
             }
             case OP_JUMP_IGNORED: {
               printf("OP_JUMP_IGNORED @ %ld (%ld)\n", opaddr, code[ip++]);
-              code = (ptrdiff_t*) code[ip-1];
+              code = (ptrdiff_t*) s.raddr_to_real((ptrdiff_t*) code[ip-1]);
               ip = 0;
               break;
             }
@@ -695,6 +737,8 @@ struct State {
   Stack cwords;
 
   /***** STACK INTERACTION PRIMITIVES */
+
+  // TODO: If I used pointer/int types correctly, these functions could handle raddr conversions
 
   Error push(Cell v) {
     stack[si++] = v;
@@ -829,14 +873,14 @@ struct State {
     WF_CHECK(allot(size, d));
 
     d->previous = shared[S_LATEST].as<DictEntry>();
-    d->name_length = name_length;
-    strncpy(d->name, name, name_length);
+    d->name.length = name_length;
+    strncpy(d->name.bytes, name, name_length);
 
     WF_LOG(WF_RT, "create word " << name);
 
     WF_ASSERT(d->previous == shared[S_LATEST].as<DictEntry>());
-    WF_ASSERT(d->name_length == name_length);
-    WF_ASSERT(strcmp(d->name, name) == 0);
+    WF_ASSERT(d->name.length == name_length);
+    WF_ASSERT(strcmp(d->name.bytes, name) == 0);
 
     shared[S_LATEST].set(d);
 
@@ -911,7 +955,7 @@ struct State {
 
     while(e) {
       // TODO: Skip HIDDEN
-      if(strcmp(e->name, name) == 0) {
+      if(strcmp(e->name.bytes, name) == 0) {
         return e;
       }
       e = e->previous;
@@ -963,6 +1007,18 @@ struct State {
             break;
           }
         }
+      } else if(c == '"') {
+        scratch_i = 0;
+        while(input_i < input_size) {
+          c = input[input_i++];
+          if(c == '"') {
+            break;
+          }
+          WF_CHECK(scratch_put(c));
+        }
+        WF_CHECK(scratch_put('\0'));
+        tk = TK_STRING;
+        return E_OK;
       } else {
         // Word
         scratch_i = 1;
@@ -1052,6 +1108,30 @@ struct State {
           }
         } else {
           return errorf_append(E_WORD_NOT_FOUND, "could not find word during interpretation");
+        }
+      } else if(tk == TK_STRING) {
+        ptrdiff_t* jmpaddr = 0;
+
+        // If compiling, we need to jump past the actual string object in the body of the word
+        if(*shared[S_COMPILING] != 0) {
+          WF_CHECK(dict_put(OP_JUMP_IGNORED));
+          jmpaddr = (ptrdiff_t*) &memory[memory_i];
+          WF_CHECK(dict_put(-1));
+        }
+        // If interpreting, push string addr
+
+        String* str;
+        WF_CHECK(allot(align(sizeof(ptrdiff_t), sizeof(String) + scratch_i + 1), str));
+        str->length = scratch_i - 1;
+        memcpy(str->bytes, scratch, scratch_i);
+
+        // If compiling, emit string addr
+        if(*shared[S_COMPILING] != 0) {
+          (*jmpaddr) = real_to_raddr((ptrdiff_t*) &memory[memory_i]);
+          WF_CHECK(dict_put(OP_PUSH_IMMEDIATE));
+          WF_CHECK(dict_put((real_to_raddr((ptrdiff_t*) str))));
+        } else {
+          WF_CHECK(push(real_to_raddr((ptrdiff_t*) str)));
         }
       }
       WF_CHECK(next_token(tk));

@@ -30,7 +30,11 @@
 
 \ would be cool to do this in forth
 
-: do
+\ ideally you could compose these features together, locals and loops
+\ user could optionally specify locals to name loop variables, if they want
+\ to use them in the loop :thinkies:
+: do 
+  \ limit start do { limit start } 
   \ emit code to save variable on stack (start) as local
   \ >l 
   \ emit code to save variable on stack (limit) as local
