@@ -14,7 +14,7 @@ struct TestState {
   State state;
 };
 
-TEST_CASE("ft.h") {
+TEST_CASE("woof") {
   TestState test_state;
 
   State& s = test_state.state;
@@ -88,6 +88,13 @@ TEST_CASE("ft.h") {
     CHECK(s.exec("variable x1 variable x2 x2 @") == E_OK);
     CHECK(s.si == 3);
     CHECK(s.stack[0].bits == 0);
+  }
+
+  SUBCASE("can use strings") {
+    CHECK(s.exec("\"string1\" : string2pusher \"string2\" ; string2pusher") == E_OK);
+    CHECK(s.si == 2);
+    
+    // TODO: Test that these are actually strings
   }
 
   SUBCASE("can loop") {

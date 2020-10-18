@@ -367,6 +367,20 @@ struct State {
         return s.push(b.bits > a.bits ? -1 : 0);
       });
 
+      defw("=", [](State& s) {
+        Cell a, b;
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
+        return s.push(b.bits == a.bits);
+      });
+
+      defw("%", [](State& s) {
+        Cell a, b;
+        WF_CHECK(s.pop(a));
+        WF_CHECK(s.pop(b));
+        return s.push(b.bits % a.bits);
+      });
+
       /***** I/O */
       defw(".", [](State& s) {
         Cell x;
@@ -390,7 +404,7 @@ struct State {
 
         size_t stack_use = 1;
 
-        for(size_t i = 0; i != addr->length; i += 1) {
+        for(size_t i = 0; i < addr->length; i += 1) {
           if(i + 1 != addr->length) {
             if(addr->bytes[i] == '%') {
               if(addr->bytes[i+1] == 's') {
@@ -406,6 +420,11 @@ struct State {
                 stack_use++;
                 printf("%ld", ptr.bits);
                 continue;
+              }
+            } else if(addr->bytes[i] == '\\') {
+              if(addr->bytes[i+1] == 'n') {
+                i += 2;
+                putchar('\n');
               }
             }
           }
@@ -1118,8 +1137,8 @@ struct State {
           jmpaddr = (ptrdiff_t*) &memory[memory_i];
           WF_CHECK(dict_put(-1));
         }
-        // If interpreting, push string addr
 
+        // If interpreting, push string addr
         String* str;
         WF_CHECK(allot(align(sizeof(ptrdiff_t), sizeof(String) + scratch_i + 1), str));
         str->length = scratch_i - 1;
