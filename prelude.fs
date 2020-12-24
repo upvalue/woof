@@ -54,6 +54,10 @@
   ,
 ; immediate compile-only
 
-\ \\\\\ OUTPUT
+\ \\\\\ INPUT/OUTPUT
 
 : cr "\n" fmt ;
+
+\ \\\\\ STACK MANIPULATION
+
+: dup2 { a b } a b a b ;

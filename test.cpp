@@ -3,8 +3,6 @@
 
 #include "woof.h"
 
-#include "raylib.h"
-
 using namespace woof;
 
 struct TestState {

@@ -1,35 +1,18 @@
+- distributability
+-- clean up source a little bit
+--- move big functions to separate source file
+--- allow optionally prelude.fs in globbed header
+--- allow including C++ extensions in globbed header
 - control flow
+xx did basic loop
 -- do? loop
-   10 0 do { i limit }
-     question, how do you compose things like this?
-     in this case we could use this, if the closing code
-     that generates the actual loop jumps is capable
-     of becoming aware of locals
-
-     why not just extract the local definition stuff out so { is reusable
-     then do{ defines locals, but leaves local addrs on the stack
-     for loop to pop em off
-
-     [
-      it does seem cool to compose these features, but im less sure about how that would work?
-     ]
-     it also seems like it would be cool to not require users to define
-     things if they dont care about them?
-
-     so, i want locals, need a way to communicate them in a way
-     that is not specific to this function, but...
-
-     could add word flags?
-
 - safety
 x- better error reporting: format messages
    kind of done, i added some functions for this, 
    just need to make sure they're used throughout
 - write basic prelude
-- variables
-? local variables
-  probably bugs, corner cases, write tests.
-  one bug: you cant have two local variables, it doesn't work
+- local variables
+-- test more thoroughly, ensure they can be used throughout a word body
 - throw/catch
   basic design  
   throw is easy enough -- just put an error message into scratch,
@@ -65,7 +48,5 @@ x- better error reporting: format messages
 -- also, if i used pointers consistently and correctly, it would be possible to have functions like
    push/pop do address conversion
 
-- it would be possible (and better) for words to just be able to hijack the reader completely
-
-x basic strings
-x think of a better name than ft.h
+- metaprogramming
+-- it would be possible (and better) for words to just be able to hijack the reader completely

@@ -18,6 +18,7 @@
     1 + 
     dup limit = 
   until
+  drop
 ;
     
-100 fizzbuzz
+101 fizzbuzz
