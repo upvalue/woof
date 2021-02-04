@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
   State state(memory);
 
   state.defw("ray/init", [](State& s) {
-    InitWindow(640, 480, "ft.h \\o/");
+    InitWindow(640, 480, "woof \\o/");
     return E_OK;
   });
 

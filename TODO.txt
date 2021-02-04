@@ -37,9 +37,10 @@ x- better error reporting: format messages
 - optimization
 -- a pretty simple optimization would be to inline a lot of c words like arithmetic as opcodes
 -- a less simple optimization would be to compile to machine code, but still fairly easy compared to writing one for a high level language
--- simple and wouldn't grow code a lot: dispatch tables for the VM
+xx simple and wouldn't grow code a lot: dispatch tables for the VM
 - embedded programming
 -- ROM support -- can we support storing and reading forth code from ROM for maximum memory usage?
+- memory management
 - code cleanliness
 -- audit use of cell, it's kind of weird
    sometimes i use it to retrieve pointers, other times to set pointers
@@ -47,6 +48,8 @@ x- better error reporting: format messages
 -- another thing that would be good is having facilities for things like generating jumps, fairly common
 -- also, if i used pointers consistently and correctly, it would be possible to have functions like
    push/pop do address conversion
+- perf 
+-- "unsafe mode" that gets rid of all the checks and safety I've added
 
 - metaprogramming
 -- it would be possible (and better) for words to just be able to hijack the reader completely

@@ -1,8 +1,8 @@
 \ prelude.fs - basic forth defined functionality
 
 \ some shorthand for VM constants to make this a bit more readable
-: OP_JUMP_IF_ZERO 4 ; 
 
+: OP_JUMP_IF_ZERO 4 ; 
 : OP_JUMP 5 ; 
 
 \ \\\\ CONDITIONALS
