@@ -18,3 +18,7 @@
 ;
 
 35 fib .
+
+\ one-liner
+\ : fib dup 1 > if dup 1 - fib swap 2 - fib + ;
+

@@ -11,6 +11,9 @@ vendor/linenoise/linenoise.o: vendor/linenoise/linenoise.c
 repl: repl.cpp vendor/linenoise/linenoise.o woof.h
 	$(CXX) -O3 -lraylib -Ivendor/linenoise -g3 -o $@ repl.cpp vendor/linenoise/linenoise.o $(RAYLIB_LDFLAGS)
 
+web-repl.js: web-repl.cpp
+	emcc -s EXTRA_EXPORTED_RUNTIME_METHODS='["ccall", "cwrap"]' -g3 -o $@ $< 
+
 test: test.cpp woof.h
 	$(CXX) -Ivendor/doctest -g3 -o $@ $<
 

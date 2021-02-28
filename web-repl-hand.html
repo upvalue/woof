@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en-us">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>woof</title>
+  <style>
+    html {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      margin: 0;
+      padding: 5px;
+      font-family: arial;
+    }
+
+    #woof-canvas {
+      width: 5px;
+      height: 5px;
+      border: 0px none;
+    }
+
+    #status {
+      display: inline-block;
+      vertical-align: top;
+      margin-top: 30px;
+      margin-left: 20px;
+      font-weight: bold;
+      color: rgb(120, 120, 120);
+    }
+
+    #progress {
+      height: 20px;
+      width: 30px;
+    }
+
+    #output {
+      width: 100%;
+      height: 200px;
+      margin: 0 auto;
+      margin-top: 10px;
+      border-left: 0px;
+      border-right: 0px;
+      padding-left: 0px;
+      padding-right: 0px;
+      display: block;
+      background-color: black;
+      color: white;
+      font-family: 'Lucida Console', Monaco, monospace;
+      outline: none;
+    }
+
+    .woof-root select,
+    input,
+    button {
+      width: 100%;
+      padding: 5px;
+      border: 1px solid #ccc;
+      background-color: #eee;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    input,
+    button,
+    select,
+    .woof-repl {
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+    }
+
+    .woof-repl {
+      overflow: scroll;
+      max-height: 65vh;
+      padding: 5px;
+      width: 100%;
+      background-color: #eee;
+      min-height: 300px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>woof</h1>
+  <canvas id="woof-canvas"></canvas>
+  <div id="woof-root"></div>
+
+  <script src="//unpkg.com/preact/dist/preact.min.js"></script>
+  <script type="text/javascript">
+    const h = preact.h;
+    let setState, getState;
+    class WoofInterface extends preact.Component {
+      constructor() {
+        super();
+        setState = (state) => {
+          console.log('state update', state);
+          this.setState(state);
+          this.forceUpdate();
+        }
+        getState = () => this.state;
+        this.state = {
+          dependenciesLeft: 0,
+          dependenciesTotal: 1,
+          message: false,
+          consoleLines: [],
+          fileToLoad: '',
+        }
+      }
+
+      /*schemeEvaluate(text) {
+        Module.ccall('ar_initialize_cli', null, ['string'], ['scheme/expander.scm']);
+        Module.ccall('ar_eval_and_print', null, ['string', 'string'], ['heap32.boot', text]);
+      }*/
+
+      enterLine(e) {
+        e.preventDefault();
+        console.log('this is it officer', Module.ccall);
+        Module.ccall('woof_initialize_cli', null, ['string'], ['']);
+        Module.ccall('woof_eval_and_print', null, ['string'], [this.r.value]);
+        this.r.value = '';
+        // console.log(e);
+      }
+
+      render(props, state) {
+        return h('div', { class: 'woof-root' },
+          state.dependenciesLeft != state.dependenciesTotal &&
+          h('p', null, `Loading: ${state.dependenciesLeft} / ${state.dependenciesTotal}.`),
+          state.message && h('p', null, `${state.message ? state.message : ''}`),
+          h('pre', { class: 'woof-repl' }, ...
+            this.state.consoleLines.slice(-1000).map((line) => {
+              return line;
+            }),
+          ),
+          h('form', { onSubmit: (e) => this.enterLine(e) },
+            h('input', { class: 'woof-cmd', type: 'text', ref: (r) => { this.r = r; }, placeholder: 'Enter Forth code...', }),
+            h('button', { type: 'submit' }, '=>'),
+          ),
+          //h('form', { onSubmit: (e) => })
+          // h('p', null, 'Or try loading a Scheme file from Gist:'),
+        );
+
+      }
+    }
+
+
+    document.addEventListener('DOMContentLoaded', () => {
+      preact.render(h(WoofInterface), document.getElementById('woof-root'));
+    });
+
+
+    const printLine = (text, error) => {
+      const lines = getState().consoleLines;
+      lines.push(`${text}\n`);
+      setState({
+        consoleLines: lines,
+      });
+      (error ? console.error : console.log)(text);
+    }
+
+
+    var statusElement = document.getElementById('status');
+    var progressElement = document.getElementById('progress');
+
+    var Module = {
+      preRun: [],
+      postRun: [],
+      print: (text) => printLine(text, false),
+      printErr: (text) => printLine(text, true),
+      canvas: (function () {
+        var canvas = document.getElementById('woof-canvas');
+
+        // As a default initial behavior, pop up an alert when webgl context is lost. To make your
+        // application robust, you may want to override this behavior before shipping!
+        // See http://www.khronos.org/registry/webgl/specs/latest/1.0/#5.15.2
+        canvas.addEventListener("webglcontextlost", function (e) { alert('WebGL context lost. You will need to reload the page.'); e.preventDefault(); }, false);
+
+        return canvas;
+      })(),
+      setStatus: function (text) {
+        if (setState) setState({ message: text });
+      },
+
+      monitorRunDependencies: function (left) {
+        let total = Math.max(getState().dependenciesTotal || 0, left);
+        setState({
+          dependenciesLeft: total - left,
+          dependenciesTotal: total,
+        });
+      },
+    };
+    Module.setStatus('Downloading...');
+  </script>
+  <script async type="text/javascript" src="web-repl.js"></script>
+</body>
+
+</html>

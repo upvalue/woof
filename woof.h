@@ -169,12 +169,14 @@ struct StateConfig {
   StateConfig() {}
   ~StateConfig() {}
 
+  // REFACTOR pointer to an array of values
   Cell* stack;
   size_t stack_size;
 
   char* memory;
   size_t memory_size;
 
+  // REFACTOR pointer to an array of values
   Cell* shared;
   size_t shared_size;
 
@@ -340,6 +342,7 @@ struct State {
       cwords.push(0);
 
       defw("+", [](State& s) {
+        // REFACTOR plain numbers
         Cell a, b;
         WF_CHECK(s.pop(a));
         WF_CHECK(s.pop(b));
@@ -347,6 +350,7 @@ struct State {
       });
 
       defw("*", [](State& s) {
+        // REFACTOR plain numbers
         Cell a, b;
         WF_CHECK(s.pop(a));
         WF_CHECK(s.pop(b));
@@ -354,6 +358,7 @@ struct State {
       });
 
       defw("-", [](State& s) {
+        // REFACTOR plain numbers
         Cell a, b;
         WF_CHECK(s.pop(a));
         WF_CHECK(s.pop(b));
@@ -361,6 +366,7 @@ struct State {
       });
 
       defw(">", [](State& s) {
+        // REFACTOR plain numbers
         Cell a, b;
         WF_CHECK(s.pop(a));
         WF_CHECK(s.pop(b));
@@ -368,6 +374,7 @@ struct State {
       });
 
       defw("=", [](State& s) {
+        // REFACTOR plain numbers
         Cell a, b;
         WF_CHECK(s.pop(a));
         WF_CHECK(s.pop(b));
@@ -375,6 +382,7 @@ struct State {
       });
 
       defw("%", [](State& s) {
+        // REFACTOR plain numbers
         Cell a, b;
         WF_CHECK(s.pop(a));
         WF_CHECK(s.pop(b));
@@ -383,6 +391,7 @@ struct State {
 
       /***** I/O */
       defw(".", [](State& s) {
+        // REFACTOR plain numbers
         Cell x;
         WF_CHECK(s.pop(x));
         printf("%ld\n", x.bits);
@@ -390,6 +399,7 @@ struct State {
       });
 
       defw(".s", [](State& s) {
+        // REFACTOR plain numbers
         for(size_t i = 0; i != s.si; i++) {
           printf("%ld ", s.stack[i].bits);
         }
@@ -398,8 +408,10 @@ struct State {
       });
 
       defw("fmt", [](State& s) {
+        // REFACTOR using cell for multiple purposes
         Cell ptr;
         WF_CHECK(s.pop(ptr));
+        // REFACTOR converting raddr to string pointer
         String* addr = (String*) s.raddr_to_real((ptrdiff_t*) ptr.bits);
 
         size_t stack_use = 1;
@@ -410,6 +422,7 @@ struct State {
               if(addr->bytes[i+1] == 's') {
                 i++;
                 WF_FN_CHECKF(s, s.pop(ptr), "format string \"%s\" needs at least %ld values on stack but got %d", addr->bytes, stack_use+1, stack_use);
+                // REFACTOR converting raddr to string pointer
                 String* addr = (String*) s.raddr_to_real((ptrdiff_t*) ptr.bits);
                 puts(addr->bytes);
                 stack_use++;
@@ -478,6 +491,7 @@ struct State {
       });
 
       defw(",", [](State& s) {
+        // REFACTOR normal number
         Cell c;
         WF_CHECK(s.pop(c));
         WF_CHECK(s.dict_put(c));
@@ -572,6 +586,7 @@ struct State {
 
       defw("!", [](State& s) {
         // Store data at address
+        // REFACTOR this converts a value to an raddr to a real pointer
         Cell addrcell, data;
         WF_CHECK(s.pop(addrcell));
         WF_CHECK(s.pop(data));
@@ -1236,6 +1251,7 @@ struct State {
           if(si == 0) {
             return E_STACK_UNDERFLOW;
           }
+          // REFACTOR getting a pointer as an raddr
           ptrdiff_t* label = (ptrdiff_t*) code[ip++];
           WF_LOG(WF_VM, "OP_JUMP_IF_ZERO @ " << (size_t)&code[ip-2] << ' ' << (size_t)label);
           si -= 1;
@@ -1248,6 +1264,7 @@ struct State {
         }
         WF_VM_CASE(OP_JUMP_IGNORED):
         WF_VM_CASE(OP_JUMP): {
+          // REFACTOR getting an raddr as a pointer
           ptrdiff_t* label = (ptrdiff_t*) code[ip++];
           WF_LOG(WF_VM, "OP_JUMP @" << (size_t)&code[ip-1] << ' ' << label);
           ip = 0;
@@ -1266,6 +1283,7 @@ struct State {
         }
         WF_VM_CASE(OP_LOCAL_SET): {
           WF_LOG(WF_VM, "OP_LOCAL_SET");
+          // REFACTOR normal pointer
           Cell val;
           WF_CHECK(pop(val));
 
