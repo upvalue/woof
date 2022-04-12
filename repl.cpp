@@ -6,7 +6,7 @@
 #include <streambuf>
 
 #include "linenoise.h"
-// #include "raylib.h"
+#include "raylib.h"
 
 #include "woof.h"
 
@@ -34,22 +34,18 @@ int main(int argc, char** argv) {
 
   State state(memory);
 
-  /*
   state.defw("ray/init", [](State& s) {
     InitWindow(640, 480, "woof \\o/");
     return E_OK;
   });
-  */
 
   // TODO: window close
   // TODO: basic draw commands
 
-  /*
   state.defw("ray/close", [](State&) {
     CloseWindow();
     return E_OK;
   });
-  */
  
   for(size_t i = 0; i != do_files.size(); i += 1) {
     std::ifstream t(do_files[i]);
