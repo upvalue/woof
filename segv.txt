@@ -1,0 +1,23 @@
+~/Sync/lang/woof (master↑) λ ./repl
+woof \o/
+> : if 4 , here -1 , swap here swap ! ; immediate compile-only 
+
+> : then here swap ! ;
+
+> 1 if "true!" fmt then
+Error: if
+invoked compile only word from interpreter
+1 
+> : test 1 if "true" fmt then ; 
+1744 
+> test
+true
+> test
+trueError: test
+stack underflow
+
+> : plus2 2 + ; 
+
+> 2 plus2
+fish: Job 1, './repl' terminated by signal SIGSEGV (Address boundary error)
+

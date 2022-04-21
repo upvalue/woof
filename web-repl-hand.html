@@ -13,7 +13,8 @@
 
     body {
       margin: 0;
-      padding: 5px;
+      padding-left: 2em;
+      padding-right: 2em;
       font-family: arial;
     }
 
@@ -110,18 +111,11 @@
         }
       }
 
-      /*schemeEvaluate(text) {
-        Module.ccall('ar_initialize_cli', null, ['string'], ['scheme/expander.scm']);
-        Module.ccall('ar_eval_and_print', null, ['string', 'string'], ['heap32.boot', text]);
-      }*/
-
       enterLine(e) {
         e.preventDefault();
-        console.log('this is it officer', Module.ccall);
         Module.ccall('woof_initialize_cli', null, ['string'], ['']);
         Module.ccall('woof_eval_and_print', null, ['string'], [this.r.value]);
         this.r.value = '';
-        // console.log(e);
       }
 
       render(props, state) {
@@ -135,7 +129,7 @@
             }),
           ),
           h('form', { onSubmit: (e) => this.enterLine(e) },
-            h('input', { class: 'woof-cmd', type: 'text', ref: (r) => { this.r = r; }, placeholder: 'Enter Forth code...', }),
+            h('input', { class: 'woof-cmd', type: 'text', ref: (r) => { this.r = r; }, placeholder: 'Enter code...', }),
             h('button', { type: 'submit' }, '=>'),
           ),
           //h('form', { onSubmit: (e) => })
@@ -166,11 +160,15 @@
 
     var Module = {
       preRun: [],
-      postRun: [],
+      postRun: [() => {
+        Module.ccall('woof_initialize_cli', null, ['string'], ['']);
+      }],
       print: (text) => printLine(text, false),
       printErr: (text) => printLine(text, true),
       canvas: (function () {
         var canvas = document.getElementById('woof-canvas');
+
+        console.log(canvas);
 
         // As a default initial behavior, pop up an alert when webgl context is lost. To make your
         // application robust, you may want to override this behavior before shipping!
@@ -184,6 +182,7 @@
       },
 
       monitorRunDependencies: function (left) {
+        if (!getState) return;
         let total = Math.max(getState().dependenciesTotal || 0, left);
         setState({
           dependenciesLeft: total - left,

@@ -96,6 +96,7 @@ enum Error {
   E_OUT_OF_MEMORY,
   /** Encountered something that was too large for scratch space, such as a very long word name */
   E_OUT_OF_SCRATCH,
+  E_FILE_ERROR,
   /** For defining words -- requests that a word is available in scratch space. */
   E_WANT_WORD,
   /** Word not found */
@@ -108,6 +109,7 @@ enum Error {
   E_COMPILE_ONLY,
   E_EXPECTED_FORTH_WORD,
   E_EXPECTED_C_WORD,
+  E_LIBRARY,
 };
 
 inline const char* error_description(const Error e) {
@@ -116,6 +118,9 @@ inline const char* error_description(const Error e) {
     case E_STACK_UNDERFLOW: return "stack underflow";
     case E_STACK_OVERFLOW: return "stack overflow";
     case E_OUT_OF_MEMORY: return "out of memory";
+    case E_OUT_OF_SCRATCH: return "out of scratch";
+    case E_LIBRARY: return "library code error";
+    case E_FILE_ERROR: return "file i/o error";
     case E_WANT_WORD: return "wanted a word";
     case E_WORD_NOT_FOUND: return "word not found";
     case E_DIVIDE_BY_ZERO: return "divide by zero";
@@ -264,7 +269,7 @@ struct State;
  */
 typedef Error (*c_word_t)(State&);
 
-/*a*
+/**
  * Reserved C++ and Forth variables. 
  * Start at S_USER_SHARED to define your own.
  */
@@ -400,12 +405,19 @@ struct State {
 
       defw(".s", [](State& s) {
         // REFACTOR plain numbers
+        printf("<%ld> ", s.si);
+
         for(size_t i = 0; i != s.si; i++) {
           printf("%ld ", s.stack[i].bits);
         }
         printf("\n");
         return E_OK;
       });
+      
+      struct Fmter {
+        // TODO: separate into fmter
+
+      };
 
       defw("fmt", [](State& s) {
         // REFACTOR using cell for multiple purposes
@@ -672,6 +684,27 @@ struct State {
         return s.push((ptrdiff_t) s.real_to_raddr(d->data<ptrdiff_t>()));
 
         return E_OK;
+      });
+
+      defw("load", [](State& s) {
+        Cell ptr;
+        WF_CHECK(s.pop(ptr));
+        String* addr = (String*) s.raddr_to_real((ptrdiff_t*) ptr.bits);
+
+        FILE* f = fopen(addr->bytes, "r");
+
+        if(!f) return E_FILE_ERROR;
+
+        fseek(f, 0, SEEK_END);
+        size_t length = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        char* buffer = (char*) calloc(1, length);
+
+        fread(buffer, 1, length, f);
+        fclose(f);
+
+        return s.exec(buffer);
       });
 
       // Print the VM code of a forth word. Assumes

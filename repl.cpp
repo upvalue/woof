@@ -10,6 +10,8 @@
 
 #include "woof.h"
 
+#include "woof-sdl.cpp"
+
 using namespace woof;
 
 StaticStateConfig<> memory;
@@ -34,8 +36,44 @@ int main(int argc, char** argv) {
 
   State state(memory);
 
+  woof_sdl_init(state);
+
   state.defw("ray/init", [](State& s) {
     InitWindow(640, 480, "woof \\o/");
+    SetTargetFPS(60);
+    return E_OK;
+  });
+
+  state.defw("ray/window-close?", [](State& s) {
+    return s.push(WindowShouldClose());
+  });
+
+  state.defw("ray/draw-begin", [](State& s) {
+    BeginDrawing();
+    return E_OK;
+  });
+
+  state.defw("ray/draw-end", [](State& s) {
+    EndDrawing();
+    return E_OK;
+  });
+
+  // add draw rectangle
+
+  state.defw("ray/draw-text", [](State& s) {
+    return E_OK;
+
+
+  });
+
+  state.defw("ray/clear-background", [](State& s) {
+    Cell r,g,b,a;
+    WF_CHECK(s.pop(a));
+    WF_CHECK(s.pop(b));
+    WF_CHECK(s.pop(g));
+    WF_CHECK(s.pop(r));
+    Color clr = {(unsigned char)r.bits,(unsigned char)g.bits,(unsigned char)b.bits, (unsigned char)a.bits};
+    ClearBackground(clr);
     return E_OK;
   });
 
@@ -53,6 +91,8 @@ int main(int argc, char** argv) {
     std::string body((std::istreambuf_iterator<char>(t)), (std::istreambuf_iterator<char>()));
 
     Error e = state.exec(body.c_str());
+
+    std::cout << "eval " << e << std::endl;
 
     if(e != E_OK) {
       std::cout << "Error: " << state.scratch << std::endl << error_description(e) << std::endl;;
